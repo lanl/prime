@@ -1,0 +1,29 @@
+Metadata-Version: 2.2
+Name: pnlp
+Version: 0.1
+Summary: Protein sequence NLP
+Home-page: 
+Author: Bin Hu, Michal Babinski, Kaetlyn Gibson
+Author-email: {bhu, mbabinski, kaetlyn}@lanl.gov
+Keywords: Protein,natural language processing,NLP
+Classifier: Development Status :: 2 - Pre-Alpha
+Classifier: Intended Audience :: Science/Research
+Classifier: Intended Audience :: Developers
+Classifier: Operating System :: POSIX :: BSD
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3 :: Only
+Classifier: Topic :: Scientific/Engineering :: Bio-Informatics
+License-File: LICENSE.txt
+Requires-Dist: numpy
+Requires-Dist: seaborn
+Requires-Dist: pandas
+Requires-Dist: tqdm
+Requires-Dist: lightning
+Requires-Dist: lightning[extra]
+Requires-Dist: transformers
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: keywords
+Dynamic: requires-dist
+Dynamic: summary
