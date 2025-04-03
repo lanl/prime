@@ -3,12 +3,8 @@ Data module for model runner, converted to PyTorch Lightning.
 """
 import os
 import sys
-import random
-import numpy as np
 import pandas as pd
-
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
 import lightning as L

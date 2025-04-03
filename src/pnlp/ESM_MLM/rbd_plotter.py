@@ -5,8 +5,9 @@ import os
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-import lightning as L
 from collections import defaultdict
+
+import lightning as L
 from lightning.pytorch.callbacks import Callback
 
 class AccuracyLossFigureCallback(Callback):
