@@ -9,7 +9,6 @@ from torch.utils.data import DataLoader, Dataset
 
 import lightning as L
 
-# DATA
 class RBDDataset(Dataset):
     def __init__(self, csv_file:str):
         try:
