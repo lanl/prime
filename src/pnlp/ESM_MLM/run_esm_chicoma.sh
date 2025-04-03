@@ -12,6 +12,6 @@
 module load cudatoolkit
 source ../../../../venvs/spike/bin/activate
 
-# Run single gpu training/validation/testing
+# Run
 srun python lightning-esm.py
 
