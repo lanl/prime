@@ -1,5 +1,5 @@
 """
-Data module for ESM-initialized BERT-MLM model runner, converted to PyTorch Lightning.
+Data module for model runner, converted to PyTorch Lightning.
 """
 import os
 import sys

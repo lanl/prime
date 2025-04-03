@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-PyTorch Lightning Model runner for ESM-initialized BERT-MLM model.
+PyTorch Lightning ESM (with masked language head) model runner.
 """
 import os
 import time

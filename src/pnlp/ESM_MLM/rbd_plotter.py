@@ -1,5 +1,5 @@
 """
-Plotter for ESM-initialized BERT-MLM model runner, converted to PyTorch Lightning.
+Plotter for model runner, converted to PyTorch Lightning.
 """
 import os
 import pandas as pd
