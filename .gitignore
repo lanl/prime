@@ -1,2 +1,3 @@
-src/pnlp/runner/logs
+**/logs
 **/__pycache__
+.cache

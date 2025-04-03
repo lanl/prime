@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
-import pytorch_lightning as pl
+import lightning as L
 
 # DATA
 class RBDDataset(Dataset):
@@ -29,7 +29,7 @@ class RBDDataset(Dataset):
         # label, seq
         return self.full_df['seq_id'][idx], self.full_df['sequence'][idx]
 
-class RBDDataModule(pl.LightningDataModule):
+class RBDDataModule(L.LightningDataModule):
     def __init__(self, data_dir: str, batch_size: int, num_workers: int, seed: int):
         super().__init__()
         self.data_dir = data_dir
@@ -38,7 +38,7 @@ class RBDDataModule(pl.LightningDataModule):
         self.seed = seed
 
         # Set seeds globally for reproducibility
-        pl.seed_everything(self.seed, workers=True)
+        L.seed_everything(self.seed, workers=True)
 
     def setup(self, stage):
         # Called on every GPU

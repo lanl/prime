@@ -14,11 +14,12 @@ from collections import defaultdict
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, TQDMProgressBar
 from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
+from pytorch_lightning.strategies import DDPStrategy, SingleDeviceStrategy
 
 from pnlp.model.language import BERT, ProteinLM
 from pnlp.embedding.tokenizer import ProteinTokenizer, token_to_index
-from pnlp.runner.rbd_data_module import RBDDataModule  
-from pnlp.runner.rbd_plotter import SaveFiguresCallback, plot_aa_preds_heatmap
+from pnlp.rbd_data_module import RBDDataModule  
+from pnlp.rbd_plotter import SaveFiguresCallback, plot_aa_preds_heatmap
 
 class ScheduledOptimWrapper(_LRScheduler):
     def __init__(self, optimizer, d_model: int, n_warmup_steps: int, last_epoch=-1):
@@ -93,8 +94,8 @@ class PlProteinMLM(pl.LightningModule):
         accuracy = (correct_predictions / total_masked) * 100
 
         # Log metrics
-        self.log('train_loss', ce_loss, prog_bar=False, on_step=False, on_epoch=True, batch_size=len(seqs))
-        self.log('train_accuracy', accuracy, prog_bar=False, on_step=False, on_epoch=True, batch_size=len(seqs))
+        self.log('train_loss', ce_loss, prog_bar=False, on_step=False, on_epoch=True, batch_size=len(seqs), sync_dist=True)
+        self.log('train_accuracy', accuracy, prog_bar=False, on_step=False, on_epoch=True, batch_size=len(seqs), sync_dist=True)
 
         return ce_loss
     
@@ -126,8 +127,8 @@ class PlProteinMLM(pl.LightningModule):
         self.validation_step_outputs.append(aa_pred_counter)
 
         # Log metrics
-        self.log('val_loss', ce_loss, prog_bar=False, on_step=False, on_epoch=True, batch_size=len(seqs))
-        self.log('val_accuracy', accuracy, prog_bar=False, on_step=False, on_epoch=True, batch_size=len(seqs))
+        self.log('val_loss', ce_loss, prog_bar=False, on_step=False, on_epoch=True, batch_size=len(seqs), sync_dist=True)
+        self.log('val_accuracy', accuracy, prog_bar=False, on_step=False, on_epoch=True, batch_size=len(seqs), sync_dist=True)
 
         return ce_loss
 
@@ -160,8 +161,8 @@ class PlProteinMLM(pl.LightningModule):
         aa_preds_dir = os.path.join(self.logger.log_dir, "aa_preds")
         os.makedirs(aa_preds_dir, exist_ok = True)
 
-        preds_csv_path = os.path.join(aa_preds_dir, f"val_aa_predictions-epoch={self.current_epoch}.csv")
-        preds_img_path = os.path.join(aa_preds_dir, f"val_aa_predictions-epoch={self.current_epoch}.heatmap.pdf")
+        preds_csv_path = os.path.join(aa_preds_dir, f"aa_predictions.csv")
+        preds_img_path = os.path.join(aa_preds_dir, f"aa_predictions.heatmap.pdf")
 
         with open(preds_csv_path, 'w') as fb:
             # Only write a header row
@@ -184,7 +185,7 @@ if __name__ == '__main__':
 
     # Logger 
     slurm_job_id = os.environ.get("SLURM_JOB_ID", "default")
-    logger = CSVLogger(save_dir="logs", name=None, version=f"version_{slurm_job_id}")
+    logger = CSVLogger(save_dir="logs", name="PNLP", version=f"version_{slurm_job_id}")
 
     # Save ONLY the best model in logs/version_x/ckpt
     best_model_checkpoint = ModelCheckpoint(
@@ -212,8 +213,10 @@ if __name__ == '__main__':
         limit_train_batches=0.01,   # 1.0 is 100% of batches
         limit_val_batches=0.01, # 1.0 is 100% of batches
         limit_test_batches=1.0, # 1.0 is 100% of batches
-        accelerator="gpu" if torch.cuda.is_available() else "cpu",
-        devices="auto", # Use all available GPUs for training
+        strategy=DDPStrategy(find_unused_parameters=True),
+        accelerator="gpu", #if torch.cuda.is_available() else "cpu",
+        devices=4, 
+        num_nodes=2,
         logger=logger,
         callbacks=[
             best_model_checkpoint, 
@@ -236,7 +239,7 @@ if __name__ == '__main__':
     dm = RBDDataModule(
         data_dir = data_dir,
         batch_size = 64,
-        num_workers = 4 if trainer.training else 1,  # Use 1 for testing
+        num_workers = 4, 
         seed = seed
     )
 
@@ -253,21 +256,4 @@ if __name__ == '__main__':
     )
 
     trainer.fit(model, dm)  # Train model
-
-    # Test on the best model
-    best_model_path = best_model_checkpoint.best_model_path
-    if best_model_path and os.path.exists(best_model_path):
-        print(f"Loading best model from checkpoint: {best_model_path}")
-        trained_model = PlProteinMLM.load_from_checkpoint(best_model_path)
-    else:
-        raise FileNotFoundError(
-            f"Best model checkpoint not found at {best_model_path}. "
-            "Ensure checkpointing is enabled and model has been saved."
-        )
-    
-    test_trainer = pl.Trainer(
-        accelerator="gpu",
-        devices=1,  # Force test to use only 1 GPU
-    )
-
-    test_trainer.test(trained_model, dm)  # Test model
+    trainer.test(model, dm)  # Test model

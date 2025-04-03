@@ -2,6 +2,7 @@ numpy
 seaborn
 pandas
 tqdm
+transformers
 lightning
 lightning[extra]
-transformers
+deepspeed

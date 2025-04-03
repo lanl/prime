@@ -1,0 +1,67 @@
+""" BERT Model. """
+
+import copy
+import torch
+import torch.nn as nn
+import lightning as L
+
+from pnlp.embedding.nlp_embedding import NLPEmbedding
+from pnlp.model.transformer import TransformerBlock
+
+class BERT(L.LightningModule):
+    """ BERT model. """
+
+    def __init__(self,
+                 embedding_dim: int,
+                 dropout: float,
+                 max_len: int,
+                 mask_prob: float,
+                 # hidden: int,
+                 n_transformer_layers: int,
+                 attn_heads: int):
+        """
+        embedding_dim: dimensions of embedding
+        hidden: BERT model size (used as input size and hidden size)
+        n_layers: number of Transformer layers
+        attn_heads: attenion heads
+        dropout: dropout ratio
+        """
+
+        super().__init__()
+        self.embedding_dim = embedding_dim
+        self.dropout = dropout
+        self.max_len = max_len
+        self.mask_prob = mask_prob
+
+        self.hidden  = embedding_dim
+        self.n_transformer_layers = n_transformer_layers
+        self.attn_heads = attn_heads
+        self.feed_forward_hidden = self.hidden * 4         # 4 * hidden_size for FFN
+
+        self.embedding = NLPEmbedding(self.embedding_dim, self.max_len, self.dropout)
+
+        def clones(module, n):
+            """Produce N identical layers"""
+            return nn.ModuleList([copy.deepcopy(module) for _ in range(n)])
+
+        self.transformer_blocks = clones(TransformerBlock(self.hidden, self.attn_heads, self.feed_forward_hidden, self.dropout), self.n_transformer_layers)
+
+    def forward(self, x: torch.Tensor):
+        embedded_seqs, mask_tensor = self.embedding(x)   # tokenized batch sequences
+
+        for transformer in self.transformer_blocks:
+            x = transformer.forward(embedded_seqs, mask_tensor)
+        return x
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self.forward(x)
+        loss = nn.CrossEntropyLoss(reduction='sum')(x_hat, y)
+        return loss
+        
+    def test_step(self, batch, batch_idx):
+        return self.training_step(batch, batch_idx)
+
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=1e-5, weight_decay=0.01)
+

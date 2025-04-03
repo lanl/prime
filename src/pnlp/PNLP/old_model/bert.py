@@ -4,7 +4,7 @@ import copy
 import torch
 import torch.nn as nn
 
-from pnlp.embedding.nlp_embedding import NLPEmbedding
+from pnlp.old_embedding.nlp_embedding import NLPEmbedding
 from pnlp.model.transformer import TransformerBlock
 
 class BERT(nn.Module):
