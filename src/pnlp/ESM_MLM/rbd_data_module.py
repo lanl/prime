@@ -79,9 +79,10 @@ def test_data_module():
     data_dir = os.path.join(os.path.dirname(__file__), f'../../../data/rbd')
     batch_size = 32
     num_workers = 4
+    seed = 0
 
     # Initialize the data module
-    data_module = RBDDataModule(data_dir, batch_size, num_workers)
+    data_module = RBDDataModule(data_dir, batch_size, num_workers, seed)
 
     # == Test case 1: Setup and train dataloader == 
     print("Test case 1: Setup and train dataloader")
