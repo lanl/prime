@@ -102,7 +102,7 @@ class LightningProteinESM(L.LightningModule):
         masked_original_ids[mask_arr] = self.tokenizer.mask_token_id
 
         # Forward pass, calculate loss
-        outputs = self.model(masked_original_ids, attention_mask=attention_mask, labels=original_ids)
+        outputs = self.model(input_ids=masked_original_ids, attention_mask=attention_mask, labels=original_ids)
         loss = outputs.loss
         preds = outputs.logits
 
@@ -149,8 +149,8 @@ class LightningProteinESM(L.LightningModule):
             # Only write a header row
             fb.write(f"expected_aa->predicted_aa,count\n") # changed the header row to only include count
 
+            # Write each expected aa->predicted aa and count directly to the csv file.
             for substitution, count in aa_preds_counter.items():
-                # Write each prediction and count directly to the csv file.
                 fb.write(f"{substitution},{count}\n")
 
         # Clear the stored outputs, as the current epoch counts have already been recorded.
@@ -216,9 +216,9 @@ if __name__ == '__main__':
 
     # Trainer setup 
     trainer= L.Trainer(
-        max_epochs=3,
-        limit_train_batches=0.01,   # 1.0 is 100% of batches
-        limit_val_batches=0.01, # 1.0 is 100% of batches
+        max_epochs=25,
+        limit_train_batches=1.0,    # 1.0 is 100% of batches
+        limit_val_batches=1.0,      # 1.0 is 100% of batches
         #strategy='deepspeed',
         strategy=DDPStrategy(find_unused_parameters=True), 
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
