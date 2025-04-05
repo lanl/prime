@@ -182,8 +182,8 @@ if __name__ == '__main__':
     L.seed_everything(seed)  # Set seed for reproducibility
 
     # Logger 
-    slurm_job_id = os.environ.get("SLURM_JOB_ID", "default")
-    logger = CSVLogger(save_dir="logs", name=None, version=f"version_{slurm_job_id}")
+    slurm_job_id = os.environ.get("SLURM_JOB_ID")
+    logger = CSVLogger(save_dir="logs", name=None, version=f"version_{slurm_job_id}" if slurm_job_id is not None else None)
 
     # Save ONLY the best model in logs/version_x/ckpt
     best_model_checkpoint = ModelCheckpoint(
