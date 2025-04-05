@@ -6,7 +6,7 @@ import os
 import time
 import datetime
 import torch
-from collections import defaultdict
+from collections import Counter
 
 import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar, Callback
@@ -27,7 +27,7 @@ class LightningProteinESM(L.LightningModule):
         self.lr = lr
         self.max_len = max_len
         self.mask_prob = mask_prob
-        self.validation_step_outputs = []
+        self.validation_step_aa_preds = []
 
     def forward(self, x):
         return self.model(x)
@@ -128,12 +128,7 @@ class LightningProteinESM(L.LightningModule):
             f"{self.tokenizer.convert_ids_to_tokens(o)}->{self.tokenizer.convert_ids_to_tokens(p)}"
             for o, p in zip(aa_only_original.tolist(), aa_only_predicted.tolist())
         ]
-
-        aa_pred_counter = defaultdict(int)
-        for aa_key in aa_keys:
-            aa_pred_counter[aa_key] += 1
-        
-        self.validation_step_outputs.append(aa_pred_counter)
+        self.validation_step_aa_preds.extend(aa_keys)
 
         # Log metrics
         self.log('val_loss', loss, prog_bar=False, on_step=False, on_epoch=True, batch_size=len(seqs), sync_dist=True)
@@ -143,11 +138,7 @@ class LightningProteinESM(L.LightningModule):
     
     def on_validation_epoch_end(self):   
         # Prediction tracking
-        aa_preds_tracker = defaultdict(lambda: defaultdict(int))
-
-        for aa_pred_counter in self.validation_step_outputs:
-            for key in aa_pred_counter:
-                aa_preds_tracker[key][self.current_epoch] += aa_pred_counter[key]
+        aa_preds_counter = Counter(self.validation_step_aa_preds)
 
         # Create a unique filename for each epoch/rank
         aa_preds_dir = os.path.join(self.logger.log_dir, "aa_preds")
@@ -158,13 +149,12 @@ class LightningProteinESM(L.LightningModule):
             # Only write a header row
             fb.write(f"expected_aa->predicted_aa,count\n") # changed the header row to only include count
 
-            for key in aa_preds_tracker:
+            for substitution, count in aa_preds_counter.items():
                 # Write each prediction and count directly to the csv file.
-                total_count = sum(aa_preds_tracker[key].values())
-                fb.write(f"{key},{total_count}\n")
+                fb.write(f"{substitution},{count}\n")
 
         # Clear the stored outputs, as the current epoch counts have already been recorded.
-        self.validation_step_outputs.clear()
+        self.validation_step_aa_preds.clear()
 
 class MetricsCallback(Callback):
     def on_train_epoch_end(self, trainer: L.Trainer, lightning_module: L.LightningModule):
@@ -226,11 +216,11 @@ if __name__ == '__main__':
 
     # Trainer setup 
     trainer= L.Trainer(
-        max_epochs=25,
-        limit_train_batches=1.0,   # 1.0 is 100% of batches
-        limit_val_batches=1.0, # 1.0 is 100% of batches
-        strategy='deepspeed', 
-        #strategy=DDPStrategy(find_unused_parameters=True),
+        max_epochs=3,
+        limit_train_batches=0.01,   # 1.0 is 100% of batches
+        limit_val_batches=0.01, # 1.0 is 100% of batches
+        #strategy='deepspeed',
+        strategy=DDPStrategy(find_unused_parameters=True), 
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         num_nodes=num_nodes,
         devices=ntasks_per_node,
