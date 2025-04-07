@@ -29,8 +29,8 @@ class LightningProteinESM(L.LightningModule):
         self.mask_prob = mask_prob
         self.validation_step_aa_preds = []
 
-    def forward(self, x):
-        return self.model(x)
+    def forward(self, input_ids, attention_mask, labels):
+        return self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
@@ -55,7 +55,7 @@ class LightningProteinESM(L.LightningModule):
         masked_original_ids[mask_arr] = self.tokenizer.mask_token_id
 
         # Forward pass, calculate loss
-        outputs = self.model(masked_original_ids, attention_mask=attention_mask, labels=original_ids)
+        outputs = self(input_ids=masked_original_ids, attention_mask=attention_mask, labels=original_ids)
         loss = outputs.loss
         preds = outputs.logits
 
@@ -102,7 +102,7 @@ class LightningProteinESM(L.LightningModule):
         masked_original_ids[mask_arr] = self.tokenizer.mask_token_id
 
         # Forward pass, calculate loss
-        outputs = self.model(input_ids=masked_original_ids, attention_mask=attention_mask, labels=original_ids)
+        outputs = self(input_ids=masked_original_ids, attention_mask=attention_mask, labels=original_ids)
         loss = outputs.loss
         preds = outputs.logits
 
@@ -246,16 +246,16 @@ if __name__ == '__main__':
 
     # Initialize DataModule and model
     dm = RBDDataModule(
-        data_dir = data_dir,
-        batch_size = 64,
-        num_workers = 4, 
-        seed = seed
+        data_dir=data_dir,
+        batch_size=64,
+        num_workers=4, 
+        seed=seed
     )
 
     model = LightningProteinESM(
-        lr = 1e-5,
-        max_len = 280,
-        mask_prob = 0.15,
+        lr=1e-5,
+        max_len=280,
+        mask_prob=0.15,
         esm_version="facebook/esm2_t6_8M_UR50D"
     )
 
