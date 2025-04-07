@@ -34,9 +34,20 @@ class LightningProteinESM(L.LightningModule):
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
-                
-    def training_step(self, batch, batch_idx):
+    
+    def step(self, batch):
+        """
+        Shared logic for training and validation.
+
+        Returns:
+            batch_size (int): Number of sequences in the batch.
+            loss (torch.Tensor): MLM loss.
+            aa_only_original (Tensor): Original amino acid token IDs at masked positions.
+            aa_only_predicted (Tensor): Predicted amino acid token IDs at masked positions.
+            accuracy (float): Accuracy of amino acid predictions.
+        """
         _, seqs = batch
+        batch_size = len(seqs)
 
         # Tokenize sequences
         tokenized_seqs = self.tokenizer(seqs, return_tensors="pt", padding=True, truncation=True, max_length=self.max_len)
@@ -75,53 +86,20 @@ class LightningProteinESM(L.LightningModule):
         correct = (aa_only_original == aa_only_predicted).sum().item()
         total = is_aa_only.sum().item()
         accuracy = (correct / total) * 100 if total > 0 else 0.0
+        
+        return batch_size, loss, aa_only_original, aa_only_predicted, accuracy
+                
+    def training_step(self, batch, batch_idx):
+        batch_size, loss, _, _, accuracy = self.step(batch)
 
         # Log metrics
-        self.log('train_loss', loss, prog_bar=False, on_step=False, on_epoch=True, batch_size=len(seqs), sync_dist=True)
-        self.log('train_accuracy', accuracy, prog_bar=False, on_step=False, on_epoch=True, batch_size=len(seqs), sync_dist=True)
+        self.log('train_loss', loss, prog_bar=False, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
+        self.log('train_accuracy', accuracy, prog_bar=False, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
 
         return loss
     
     def validation_step(self, batch, batch_idx):
-        _, seqs = batch
-
-        # Tokenize sequences
-        tokenized_seqs = self.tokenizer(seqs, return_tensors="pt", padding=True, truncation=True, max_length=self.max_len)
-        tokenized_seqs = {k: v.to(self.device) for k, v in tokenized_seqs.items()}
-        original_ids = tokenized_seqs["input_ids"]
-        attention_mask = tokenized_seqs["attention_mask"]
-
-        # Generate new mask for each epoch
-        rand = torch.rand(original_ids.shape, device=self.device)
-        mask_arr = (rand < self.mask_prob) * \
-               (original_ids != self.tokenizer.cls_token_id) * \
-               (original_ids != self.tokenizer.eos_token_id) * \
-               (original_ids != self.tokenizer.pad_token_id)
-    
-        masked_original_ids = original_ids.clone()
-        masked_original_ids[mask_arr] = self.tokenizer.mask_token_id
-
-        # Forward pass, calculate loss
-        outputs = self(input_ids=masked_original_ids, attention_mask=attention_mask, labels=original_ids)
-        loss = outputs.loss
-        preds = outputs.logits
-
-        # Make sure calculating only on amino acids present at masked positions, no special tokens
-        predicted_ids = torch.argmax(preds, dim=-1)
-        mask = (masked_original_ids == self.tokenizer.mask_token_id)
-        
-        original_tokens = original_ids[mask]
-        predicted_tokens = predicted_ids[mask]
-
-        aa_ids_tensor = torch.tensor([self.tokenizer.convert_tokens_to_ids(aa) for aa in "ACDEFGHIKLMNPQRSTVWY"], device=self.device)
-        is_aa_only = torch.isin(original_tokens, aa_ids_tensor) & torch.isin(predicted_tokens, aa_ids_tensor)
-        aa_only_original = original_tokens[is_aa_only]
-        aa_only_predicted = predicted_tokens[is_aa_only]
-
-        # Calculate accuracy 
-        correct = (aa_only_original == aa_only_predicted).sum().item()
-        total = is_aa_only.sum().item()
-        accuracy = (correct / total) * 100 if total > 0 else 0.0
+        batch_size, loss, aa_only_original, aa_only_predicted, accuracy = self.step(batch)
 
         # Track amino acid predictions
         aa_keys = [
@@ -131,8 +109,8 @@ class LightningProteinESM(L.LightningModule):
         self.validation_step_aa_preds.extend(aa_keys)
 
         # Log metrics
-        self.log('val_loss', loss, prog_bar=False, on_step=False, on_epoch=True, batch_size=len(seqs), sync_dist=True)
-        self.log('val_accuracy', accuracy, prog_bar=False, on_step=False, on_epoch=True, batch_size=len(seqs), sync_dist=True)
+        self.log('val_loss', loss, prog_bar=False, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
+        self.log('val_accuracy', accuracy, prog_bar=False, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
 
         return loss
     
