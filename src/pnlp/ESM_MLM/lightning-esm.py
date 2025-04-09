@@ -140,18 +140,21 @@ class MetricsCallback(Callback):
         This method is called when a training epoch ends.
         Validation end callbacks are triggered before training end callbacks.
         """    
-        if trainer.global_rank == 0:
-            train_loss = trainer.callback_metrics.get("train_loss")
-            train_acc = trainer.callback_metrics.get("train_accuracy")
-            val_loss = trainer.callback_metrics.get("val_loss")
-            val_acc = trainer.callback_metrics.get("val_accuracy")
+        # Skip non-zero ranks
+        if trainer.global_rank != 0:
+            return  
+        
+        train_loss = trainer.callback_metrics.get("train_loss")
+        train_acc = trainer.callback_metrics.get("train_accuracy")
+        val_loss = trainer.callback_metrics.get("val_loss")
+        val_acc = trainer.callback_metrics.get("val_accuracy")
 
-            print(
-                f"\n[Epoch {trainer.current_epoch}] "
-                f"Train Loss: {train_loss:.4f}, Accuracy: {train_acc:.2f}% | "
-                f"Val Loss: {val_loss:.4f}, Accuracy: {val_acc:.2f}%", 
-                flush=True
-            )
+        print(
+            f"\n[Epoch {trainer.current_epoch}] "
+            f"Train Loss: {train_loss:.4f}, Accuracy: {train_acc:.2f}% | "
+            f"Val Loss: {val_loss:.4f}, Accuracy: {val_acc:.2f}%", 
+            flush=True
+        )
 
 if __name__ == '__main__':
 
@@ -197,7 +200,6 @@ if __name__ == '__main__':
         max_epochs=25,
         limit_train_batches=1.0,    # 1.0 is 100% of batches
         limit_val_batches=1.0,      # 1.0 is 100% of batches
-        #strategy='deepspeed',
         strategy=DDPStrategy(find_unused_parameters=True), 
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         num_nodes=num_nodes,
@@ -209,7 +211,7 @@ if __name__ == '__main__':
             all_epochs_checkpoint, 
             TQDMProgressBar(refresh_rate=25),   # Update every 25 batches
             AccuracyLossFigureCallback(),       # For accuracy/loss plots
-            AAHeatmapFigureCallback()           # For final AA heatmap
+            AAHeatmapFigureCallback()           # For final/best AA heatmap
         ]
     )
 

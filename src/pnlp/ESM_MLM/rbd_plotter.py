@@ -2,19 +2,26 @@
 Plotter for model runner, converted to PyTorch Lightning.
 """
 import os
+import time
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from collections import defaultdict
 
 import lightning as L
-from lightning.pytorch.callbacks import Callback
+from lightning.pytorch.callbacks import Callback, ModelCheckpoint
+
+from torch.distributed import barrier
 
 class AccuracyLossFigureCallback(Callback):
-    def on_train_end(self, trainer: L.Trainer, lightning_module: L.LightningModule):
+    def on_fit_end(self, trainer: L.Trainer, lightning_module: L.LightningModule):
         """
-        This method is called right after training ends. Accuracy and loss plot.
+        This method is called at the end of `trainer.fit`. Accuracy and loss plot.
         """
+        # Skip non-zero ranks
+        if trainer.global_rank != 0:
+            return  
+
         log_dir = trainer.logger.log_dir
 
         # Extract data from metrics file
@@ -65,9 +72,9 @@ class AccuracyLossFigureCallback(Callback):
         plt.close()
 
 class AAHeatmapFigureCallback(Callback):
-    def on_train_end(self, trainer: L.Trainer, lightning_module: L.LightningModule):
+    def generate_heatmap(self, trainer: L.Trainer, epoch: int, tag: str):
         """
-        This method is called right after training ends. Amino acid prediction heatmap.
+        Amino acid prediction heatmap (only single epoch data, aggregated across ranks).
         """
         log_dir = trainer.logger.log_dir
         aa_preds_dir = os.path.join(log_dir, "aa_preds")
@@ -76,20 +83,19 @@ class AAHeatmapFigureCallback(Callback):
         all_combinations = [(e_aa, p_aa) for e_aa in ALL_AAS for p_aa in ALL_AAS]
         all_df = pd.DataFrame(all_combinations, columns=["Expected", "Predicted"])
 
-        # Aggregate counts
+        # Aggregate counts for current epoch
         total_data = defaultdict(int)  # key: "Expected->Predicted", value: total count
 
-        for epoch in range(trainer.max_epochs):
-            for rank in range(trainer.world_size):
-                csv_path = os.path.join(aa_preds_dir, f"aa_predictions_epoch{epoch}_rank{rank}.csv")
-                if not os.path.exists(csv_path):
-                    continue
+        for rank in range(trainer.world_size):
+            csv_path = os.path.join(aa_preds_dir, f"aa_predictions_epoch{epoch}_rank{rank}.csv")
+            if not os.path.exists(csv_path):
+                continue
 
-                df = pd.read_csv(csv_path)
-                for _, row in df.iterrows():
-                    key = row['expected_aa->predicted_aa']
-                    count = int(row['count'])
-                    total_data[key] += count
+            df = pd.read_csv(csv_path)
+            for _, row in df.iterrows():
+                key = row['expected_aa->predicted_aa']
+                count = int(row['count'])
+                total_data[key] += count
 
         # Convert dict to DataFrame
         records = []
@@ -131,10 +137,64 @@ class AAHeatmapFigureCallback(Callback):
 
         plt.xlabel('Expected Amino Acid')
         plt.ylabel('Predicted Amino Acid')
-        plt.title("Amino Acid Prediction Error Across Epochs")
+        plt.title(f"{tag} Amino Acid Prediction Error")
 
-        # Save the figure to the "figures" subdirectory.
-        save_path = os.path.join(aa_preds_dir , "aa_predictions_all_epochs")
+        # Save the figure
+        save_path = os.path.join(aa_preds_dir , f"aa_predictions_heatmap-{tag.lower()}_epoch{epoch}")
         plt.savefig(f"{save_path}.pdf", format='pdf', dpi=300, bbox_inches='tight')
         plt.savefig(f"{save_path}.png", format='png', dpi=300, bbox_inches='tight')
         plt.close()
+
+    def on_fit_end(self, trainer: L.Trainer, lightning_module: L.LightningModule):
+        """
+        This method is called at the end of `trainer.fit`. Calls generate_heatmap 
+        for the best epoch, and the last epoch.
+        """
+        # Skip non-zero ranks
+        if trainer.global_rank != 0:
+            return  
+        
+        # Existing best/final epoch determination
+        best_epoch = None
+        for cb in trainer.callbacks:
+            if isinstance(cb, ModelCheckpoint) and cb.monitor == "val_accuracy":
+                best_model_path = cb.best_model_path
+                if "epoch=" in best_model_path:
+                    best_epoch = int(best_model_path.split("epoch=")[1].split(".")[0])
+        
+        final_epoch = trainer.max_epochs-1
+
+        # Verify all needed files exist
+        log_dir = trainer.logger.log_dir
+        aa_preds_dir = os.path.join(log_dir, "aa_preds")
+
+        def all_files_ready():
+            for epoch in [best_epoch, final_epoch]:
+                for rank in range(trainer.world_size):
+                    csv_path = os.path.join(aa_preds_dir, f"aa_predictions_epoch{epoch}_rank{rank}.csv")
+                    try:
+                        if not os.path.exists(csv_path):
+                            return False
+                        pd.read_csv(csv_path)  # Try reading to confirm it's valid
+                    except Exception:
+                        return False
+            return True
+
+        # Wait until all files exist
+        timeout_seconds = 20
+        start_time = time.time()
+
+        print("Verifying prediction files...")
+        while not all_files_ready():
+            elapsed_time = time.time() - start_time
+            if elapsed_time > timeout_seconds:
+                raise FileNotFoundError(f"Files not found after {timeout_seconds} seconds. Ending check.")
+            
+            print(f"Waiting for all prediction files to be written... {elapsed_time}/{timeout_seconds} sec elapsed before giving up.")
+            time.sleep(1)
+        
+        print("All files confirmed. Generating heatmaps...")
+
+        # Generate heatmaps after verification
+        self.generate_heatmap(trainer, best_epoch, "Best")
+        self.generate_heatmap(trainer, final_epoch, "Final")
