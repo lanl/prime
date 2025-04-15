@@ -9,7 +9,7 @@ import torch
 from collections import Counter
 
 import lightning as L
-from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar, Callback
+from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.strategies import DDPStrategy
 
@@ -19,7 +19,9 @@ from pnlp.ESM_MLM.rbd_data_module import RBDDataModule
 from pnlp.ESM_MLM.rbd_plotter import AccuracyLossFigureCallback, AAHeatmapFigureCallback
 
 class LightningProteinESM(L.LightningModule):
-    def __init__(self, lr: float, max_len: int, mask_prob: float, esm_version="facebook/esm2_t6_8M_UR50D"):
+    def __init__(self, 
+                 from_checkpoint:str,   # Only set for hparams save
+                 lr: float, max_len: int, mask_prob: float, esm_version="facebook/esm2_t6_8M_UR50D"):
         super().__init__()
         self.save_hyperparameters()  # Save all init parameters to self.hparams
         self.tokenizer = EsmTokenizer.from_pretrained(esm_version, cache_dir="../../../.cache")
@@ -93,8 +95,8 @@ class LightningProteinESM(L.LightningModule):
         batch_size, loss, _, _, accuracy = self.step(batch)
 
         # Log metrics
-        self.log('train_loss', loss, prog_bar=False, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
-        self.log('train_accuracy', accuracy, prog_bar=False, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
+        self.log('train_loss', loss, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
+        self.log('train_accuracy', accuracy, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
 
         return loss
     
@@ -109,8 +111,8 @@ class LightningProteinESM(L.LightningModule):
         self.validation_step_aa_preds.extend(aa_keys)
 
         # Log metrics
-        self.log('val_loss', loss, prog_bar=False, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
-        self.log('val_accuracy', accuracy, prog_bar=False, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
+        self.log('val_loss', loss, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
+        self.log('val_accuracy', accuracy, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
 
         return loss
     
@@ -133,28 +135,6 @@ class LightningProteinESM(L.LightningModule):
 
         # Clear the stored outputs, as the current epoch counts have already been recorded.
         self.validation_step_aa_preds.clear()
-
-class MetricsCallback(Callback):
-    def on_train_epoch_end(self, trainer: L.Trainer, lightning_module: L.LightningModule):
-        """
-        This method is called when a training epoch ends.
-        Validation end callbacks are triggered before training end callbacks.
-        """    
-        # Skip non-zero ranks
-        if trainer.global_rank != 0:
-            return  
-        
-        train_loss = trainer.callback_metrics.get("train_loss")
-        train_acc = trainer.callback_metrics.get("train_accuracy")
-        val_loss = trainer.callback_metrics.get("val_loss")
-        val_acc = trainer.callback_metrics.get("val_accuracy")
-
-        print(
-            f"\n[Epoch {trainer.current_epoch}] "
-            f"Train Loss: {train_loss:.4f}, Accuracy: {train_acc:.2f}% | "
-            f"Val Loss: {val_loss:.4f}, Accuracy: {val_acc:.2f}%", 
-            flush=True
-        )
 
 if __name__ == '__main__':
 
@@ -197,7 +177,7 @@ if __name__ == '__main__':
 
     # Trainer setup 
     trainer= L.Trainer(
-        max_epochs=25,
+        max_epochs=100,
         limit_train_batches=1.0,    # 1.0 is 100% of batches
         limit_val_batches=1.0,      # 1.0 is 100% of batches
         strategy=DDPStrategy(find_unused_parameters=True), 
@@ -206,7 +186,6 @@ if __name__ == '__main__':
         devices=ntasks_per_node,
         logger=logger,
         callbacks=[
-            MetricsCallback(),                  # For printing metrics after every epoch
             best_model_checkpoint, 
             all_epochs_checkpoint, 
             TQDMProgressBar(refresh_rate=25),   # Update every 25 batches
@@ -225,6 +204,8 @@ if __name__ == '__main__':
     data_dir= os.path.join(os.path.dirname(__file__), f'../../../data/rbd')
 
     # Initialize DataModule and model
+    from_checkpoint = None
+
     dm = RBDDataModule(
         data_dir=data_dir,
         batch_size=64,
@@ -233,13 +214,18 @@ if __name__ == '__main__':
     )
 
     model = LightningProteinESM(
+        from_checkpoint=from_checkpoint,    
         lr=1e-5,
         max_len=280,
         mask_prob=0.15,
         esm_version="facebook/esm2_t6_8M_UR50D"
     )
 
+    # Run model train/validation, load from_checkpoint if set
     start_time = time.perf_counter()
-    trainer.fit(model, dm)  # Train model
+    if from_checkpoint is not None:
+        trainer.fit(model, dm, ckpt_path=from_checkpoint)  # Train model from checkpoint
+    else:
+        trainer.fit(model, dm)  # Train model
     duration = datetime.timedelta(seconds=time.perf_counter()-start_time)
-    print(f"[Timing] Trainer.fit(...) took: {duration} (hh:mm:ss).")
+    if trainer.global_rank == 0: print(f"[Timing] Trainer.fit(...) took: {duration} (hh:mm:ss).")

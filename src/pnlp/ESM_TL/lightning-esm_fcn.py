@@ -52,7 +52,7 @@ class FCN(L.LightningModule):
 
 class LightningEsmFcn(L.LightningModule):
     def __init__(self, 
-                 bORe_tag:str, from_checkpoint:str, 
+                 bORe_tag:str, from_checkpoint:str, # Only set for hparams save
                  lr: float, max_len: int, fcn_model: FCN, esm_version="facebook/esm2_t6_8M_UR50D", freeze_esm_weights=True, from_esm_mlm=None):
         super().__init__()
         self.save_hyperparameters(ignore=['fcn_model'])  # Save all init parameters to self.hparams
@@ -257,8 +257,8 @@ if __name__ == '__main__':
     )
 
     model = LightningEsmFcn(
-        bORe_tag=bORe_tag,                  # Only set for hparams save
-        from_checkpoint=from_checkpoint,    # Only set for hparams save
+        bORe_tag=bORe_tag,                  
+        from_checkpoint=from_checkpoint,    
         lr=1e-5,
         max_len=280,
         fcn_model=fcn,
@@ -267,12 +267,11 @@ if __name__ == '__main__':
         from_esm_mlm=from_esm_mlm
     )
 
+    # Run model train/validation, load from_checkpoint if set
     start_time = time.perf_counter()
-
     if from_checkpoint is not None:
         trainer.fit(model, dm, ckpt_path=from_checkpoint)  # Train model from checkpoint
     else:
         trainer.fit(model, dm)  # Train model
-
     duration = datetime.timedelta(seconds=time.perf_counter()-start_time)
     if trainer.global_rank == 0: print(f"[Timing] Trainer.fit(...) took: {duration} (hh:mm:ss).")
