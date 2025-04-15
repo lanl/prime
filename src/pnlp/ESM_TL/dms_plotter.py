@@ -10,9 +10,9 @@ import lightning as L
 from lightning.pytorch.callbacks import Callback
 
 class LossFigureCallback(Callback):
-    def on_train_end(self, trainer: L.Trainer, lightning_module: L.LightningModule):
+    def on_fit_end(self, trainer: L.Trainer, lightning_module: L.LightningModule):
         """
-        This method is called right after training ends. Loss plot.
+        TThis method is called at the end of `trainer.fit`. Loss plot.
         """
         log_dir = trainer.logger.log_dir
 

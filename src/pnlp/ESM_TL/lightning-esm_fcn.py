@@ -51,19 +51,62 @@ class FCN(L.LightningModule):
         return prediction
 
 class LightningEsmFcn(L.LightningModule):
-    def __init__(self, lr: float, max_len: int, fcn_num_layers:int, fcn_size=320, esm_version="facebook/esm2_t6_8M_UR50D"):
+    def __init__(self, 
+                 bORe_tag:str, from_checkpoint:str, 
+                 lr: float, max_len: int, fcn_model: FCN, esm_version="facebook/esm2_t6_8M_UR50D", freeze_esm_weights=True, from_esm_mlm=None):
         super().__init__()
-        self.save_hyperparameters()  # Save all init parameters to self.hparams
+        self.save_hyperparameters(ignore=['fcn_model'])  # Save all init parameters to self.hparams
         self.tokenizer = EsmTokenizer.from_pretrained(esm_version, cache_dir="../../../.cache")
         self.esm = EsmModel.from_pretrained(esm_version, cache_dir="../../../.cache")
-        self.fcn = FCN(fcn_input_size=fcn_size, fcn_hidden_size=fcn_size, fcn_num_layers=fcn_num_layers)
+        self.fcn = fcn_model
         self.loss_fn = nn.MSELoss(reduction='sum')
         self.lr = lr
         self.max_len = max_len
-        self.training_loss = 0.0
-        self.training_items = 0
-        self.validation_loss = 0.0
-        self.validation_items = 0
+
+        # Load fine-tuned weights from Lightning ESM_MLM ckpt
+        if from_esm_mlm is not None:
+            if trainer.global_rank == 0: print(f"Loading ESM_MLM checkpoint from {from_esm_mlm}...")
+
+            ckpt = torch.load(from_esm_mlm, map_location="cpu")
+            state_dict = ckpt["state_dict"]
+
+            # Remove "model." prefix and filter out EsmMaskedLM specific keys
+            new_state_dict = {}
+            for key, value in state_dict.items():
+                # Remove "model." prefix
+                new_key = key.replace("model.", "")
+
+                # Filter out EsmMaskedLM keys (e.g., lm_head.*)
+                if "lm_head" not in new_key:
+                    new_state_dict[new_key] = value
+
+            # Load weights non-strictly
+            missing, unexpected = self.load_state_dict(new_state_dict, strict=False)
+
+            # Define keys to ignore in missing list, these are from ESM_FCN and won't exist in the ESM_MLM
+            ignored_missing = {
+                "esm.pooler.dense.weight", "esm.pooler.dense.bias",
+                "fcn.fcn.0.weight", "fcn.fcn.0.bias", "fcn.fcn.2.weight", "fcn.fcn.2.bias",
+                "fcn.fcn.4.weight", "fcn.fcn.4.bias", "fcn.fcn.6.weight", "fcn.fcn.6.bias",
+                "fcn.fcn.8.weight", "fcn.fcn.8.bias", "fcn.out.weight", "fcn.out.bias"
+            }
+
+            # Filter out ignored missing keys
+            filtered_missing = [k for k in missing if k not in ignored_missing]
+
+            # Raise error if any unexpected keys are missing
+            if filtered_missing: raise RuntimeError(f"Missing unexpected keys from ESM_MLM checkpoint: {filtered_missing}")
+
+            if trainer.global_rank == 0:
+                print("ESM_MLM checkpoint loaded successfully.")
+
+                if unexpected: print("Unexpected keys:", unexpected)
+
+        # Freeze ESM weights
+        if freeze_esm_weights:
+            for param in self.esm.parameters():
+                param.requires_grad = False
+            if trainer.global_rank == 0: print("ESM weights are frozen!")
 
     def forward(self, input_ids, attention_mask):
         esm_last_hidden_state = self.esm(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state # shape: [batch_size, sequence_length, embedding_dim]
@@ -76,61 +119,51 @@ class LightningEsmFcn(L.LightningModule):
     def step(self, batch):
         _, seqs, targets = batch
         targets = targets.to(self.device).float()
+        batch_size = targets.size(0)
 
-        # Tokenize sequences
-        tokenized_seqs = self.tokenizer(seqs, return_tensors="pt", padding=True, truncation=True, max_length=self.max_len)
-        tokenized_seqs = {k: v.to(self.device) for k, v in tokenized_seqs.items()}
-        original_ids = tokenized_seqs["input_ids"]
-        attention_mask = tokenized_seqs["attention_mask"]
+        tokenized = self.tokenizer(seqs, return_tensors="pt", padding=True, truncation=True, max_length=self.max_len)
+        tokenized = {k: v.to(self.device) for k, v in tokenized.items()}
 
-        # Forward pass, calculate loss
-        outputs = self(input_ids=original_ids, attention_mask=attention_mask)
-        preds = outputs.logits
-        loss = self.loss_fn(preds, targets)
+        preds = self(input_ids=tokenized["input_ids"], attention_mask=tokenized["attention_mask"])
+        loss = self.loss_fn(preds, targets)  # Sum of squared errors (sse)
 
-        return loss, len(targets)
-                
+        return loss, batch_size
+
     def training_step(self, batch, batch_idx):
-        loss, num_items = self.step(batch)
-        self.training_loss += loss.item()
-        self.training_items += num_items
+        loss, batch_size = self.step(batch)
+        
+        # Accumulate (reduce_fx="sum") losses and total items in batch
+        self.log("train_sum_se", loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
+        self.log("train_total_items", batch_size, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
         return loss
+
+    def on_train_epoch_end(self):
+        sum_se = self.trainer.callback_metrics.get("train_sum_se")
+        total_items = self.trainer.callback_metrics.get("train_total_items")
+        
+        if sum_se is not None and total_items and total_items > 0:
+            train_mse = sum_se / total_items
+            train_rmse = torch.sqrt(train_mse)
+            self.log("train_mse", train_mse, prog_bar=True) # Already synced in step
+            self.log("train_rmse", train_rmse, prog_bar=True) # Already synced in step
 
     def validation_step(self, batch, batch_idx):
-        loss, num_items = self.step(batch)
-        self.validation_loss += loss.item()
-        self.validation_items += num_items
+        loss, batch_size = self.step(batch)
+        
+        # Accumulate (reduce_fx="sum") losses and total items in batches
+        self.log("val_sum_se", loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
+        self.log("val_total_items", batch_size, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
         return loss
-    
-    def training_epoch_end(self, outputs):
-        mse = self.training_loss / self.training_items
-        rmse = np.sqrt(mse)
-        self.training_loss = 0.0
-        self.training_items = 0
-        self.log('train_rmse', rmse, prog_bar=False, on_step=False, on_epoch=True, sync_dist=True)
 
-    def validation_epoch_end(self, outputs):
-        mse = self.validation_loss / self.validation_items
-        rmse = np.sqrt(mse)
-        self.validation_loss = 0.0
-        self.validation_items = 0
-        self.log('val_rmse', rmse, prog_bar=False, on_step=False, on_epoch=True, sync_dist=True)
-
-class MetricsCallback(Callback):
-    def on_train_epoch_end(self, trainer: L.Trainer, lightning_module: L.LightningModule):
-        """
-        This method is called when a training epoch ends.
-        Validation end callbacks are triggered before training end callbacks.
-        """    
-        if trainer.global_rank == 0:
-            train_rmse = trainer.callback_metrics.get("train_rmse")
-            val_rmse = trainer.callback_metrics.get("val_rmse")
-
-            print(
-                f"\n[Epoch {trainer.current_epoch}] "
-                f"Train RMSE Loss: {train_rmse:.4f} | Val RMSE Loss: {val_rmse:.4f}",
-                flush=True
-            )
+    def on_validation_epoch_end(self):
+        sum_se = self.trainer.callback_metrics.get("val_sum_se")
+        total_items = self.trainer.callback_metrics.get("val_total_items")
+        
+        if sum_se is not None and total_items and total_items > 0:
+            val_mse = sum_se / total_items
+            val_rmse = torch.sqrt(val_mse)
+            self.log("val_mse", val_mse, prog_bar=True) # Already synced in step
+            self.log("val_rmse", val_rmse, prog_bar=True) # Already synced in step
 
 if __name__ == '__main__':
 
@@ -140,13 +173,13 @@ if __name__ == '__main__':
 
     # Logger 
     slurm_job_id = os.environ.get("SLURM_JOB_ID")
-    logger = CSVLogger(save_dir="logs", name=None, version=f"version_{slurm_job_id}" if slurm_job_id is not None else None)
+    logger = CSVLogger(save_dir="logs", name=f"esm_fcn", version=f"version_{slurm_job_id}" if slurm_job_id is not None else None)
 
     # Save ONLY the best model in logs/version_x/ckpt
     best_model_checkpoint = ModelCheckpoint(
         filename="best_model-epoch={epoch:02d}.val_rmse={val_rmse:.4f}",
         monitor="val_rmse",
-        mode="max",
+        mode="min",
         save_top_k=1,
         save_last=False,
         dirpath=None,  # Let PyTorch Lightning manage the directory
@@ -173,17 +206,15 @@ if __name__ == '__main__':
 
     # Trainer setup 
     trainer= L.Trainer(
-        max_epochs=5,
-        limit_train_batches=0.01,    # 1.0 is 100% of batches
-        limit_val_batches=0.01,      # 1.0 is 100% of batches
-        #strategy='deepspeed',
+        max_epochs=200,
+        limit_train_batches=1.0,    # 1.0 is 100% of batches
+        limit_val_batches=1.0,      # 1.0 is 100% of batches
         strategy=DDPStrategy(find_unused_parameters=True), 
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         num_nodes=num_nodes,
         devices=ntasks_per_node,
         logger=logger,
         callbacks=[
-            MetricsCallback(),                  # For printing metrics after every epoch
             best_model_checkpoint, 
             all_epochs_checkpoint, 
             TQDMProgressBar(refresh_rate=25),   # Update every 25 batches
@@ -200,23 +231,48 @@ if __name__ == '__main__':
     # Data directory (no results_dir needed since versioning handles it automatically)
     data_dir= os.path.join(os.path.dirname(__file__), f'../../../data/dms')
 
+    # FCN input, size should match used ESM model embedding_dim size
+    size = 320
+    fcn_input_size = size  
+    fcn_hidden_size = size
+    fcn_num_layers = 5
+    fcn = FCN(fcn_input_size, fcn_hidden_size, fcn_num_layers)
+
     # Initialize DataModule and model
+    bORe_tag = "binding"    # Binding or Expression
+    from_esm_mlm="../ESM_MLM/logs/version_21749507/ckpt/best_model-epoch=23.val_loss=0.0023.val_accuracy=99.6448.ckpt"  # None or path to ESM_MLM checkpoint, if fine-tuning
+    from_checkpoint = None
+
+    if from_checkpoint is not None and from_esm_mlm is not None:
+        if trainer.global_rank == 0: print(f"NOTICE: 'from_checkpoint' is set, so 'from_esm_mlm' ({from_esm_mlm}) will be ignored.")
+        from_esm_mlm = None
+
     dm = DMSDataModule(
         data_dir=data_dir,
+        bORe_tag=bORe_tag,  
+        torch_geometric_tag=False, 
         batch_size=64,
         num_workers=4, 
         seed=seed
     )
 
     model = LightningEsmFcn(
+        bORe_tag=bORe_tag,                  # Only set for hparams save
+        from_checkpoint=from_checkpoint,    # Only set for hparams save
         lr=1e-5,
         max_len=280,
-        fcn_num_layers=5, 
-        fcn_size=320,   # Match embedding dim of ESM model
-        esm_version="facebook/esm2_t6_8M_UR50D"
+        fcn_model=fcn,
+        esm_version="facebook/esm2_t6_8M_UR50D",
+        freeze_esm_weights=False,
+        from_esm_mlm=from_esm_mlm
     )
 
     start_time = time.perf_counter()
-    trainer.fit(model, dm)  # Train model
+
+    if from_checkpoint is not None:
+        trainer.fit(model, dm, ckpt_path=from_checkpoint)  # Train model from checkpoint
+    else:
+        trainer.fit(model, dm)  # Train model
+
     duration = datetime.timedelta(seconds=time.perf_counter()-start_time)
-    print(f"[Timing] Trainer.fit(...) took: {duration} (hh:mm:ss).")
+    if trainer.global_rank == 0: print(f"[Timing] Trainer.fit(...) took: {duration} (hh:mm:ss).")
