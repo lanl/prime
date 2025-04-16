@@ -6,3 +6,4 @@ transformers
 lightning
 lightning[extra]
 deepspeed
+torch-geometric
