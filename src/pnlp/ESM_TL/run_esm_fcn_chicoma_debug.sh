@@ -15,6 +15,6 @@ module load cudatoolkit
 source ../../../../venvs/spike/bin/activate
 
 # Run
-srun python lightning-esm_fcn.py
+srun python lightning-esm_fcn_be.py
 
 

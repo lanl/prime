@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-PyTorch Lightning ESM-BLSTM model runner.
+PyTorch Lightning ESM-FCN model runner.
 """
 import os
 import time
@@ -15,19 +15,19 @@ from lightning.pytorch.strategies import DDPStrategy
 
 from transformers import EsmTokenizer, EsmModel
 
-from pnlp.ESM_TL.dms_models import BLSTM
-from pnlp.ESM_TL.dms_data_module import DmsDataModule  
+from pnlp.ESM_TL.dms_models import FCN_BE
+from pnlp.ESM_TL.dms_data_module import DmsBeDataModule  
 from pnlp.ESM_TL.dms_plotter import LossFigureCallback
 
-class LightningEsmBlstm(L.LightningModule):
+class LightningEsmFcnBe(L.LightningModule):
     def __init__(self, 
                  bORe_tag:str, from_checkpoint:str, # Only set for hparams save
-                 lr: float, max_len: int, blstm_model: BLSTM, esm_version="facebook/esm2_t6_8M_UR50D", freeze_esm_weights=True, from_esm_mlm=None):
+                 lr: float, max_len: int, fcn_model: FCN_BE, esm_version="facebook/esm2_t6_8M_UR50D", freeze_esm_weights=True, from_esm_mlm=None):
         super().__init__()
         self.save_hyperparameters(ignore=["fcn_model"])  # Save all init parameters to self.hparams
         self.tokenizer = EsmTokenizer.from_pretrained(esm_version, cache_dir="../../../.cache")
         self.esm = EsmModel.from_pretrained(esm_version, cache_dir="../../../.cache")
-        self.blstm = blstm_model
+        self.fcn = fcn_model
         self.loss_fn = nn.MSELoss(reduction="sum")
         self.lr = lr
         self.max_len = max_len
@@ -55,11 +55,9 @@ class LightningEsmBlstm(L.LightningModule):
             # Define keys to ignore in missing list, these are from ESM_FCN and won't exist in the ESM_MLM
             ignored_missing = {
                 "esm.pooler.dense.weight", "esm.pooler.dense.bias",
-                "blstm.lstm.weight_ih_l0", "blstm.lstm.weight_hh_l0", "blstm.lstm.bias_ih_l0", "blstm.lstm.bias_hh_l0",
-                "blstm.lstm.weight_ih_l0_reverse", "blstm.lstm.weight_hh_l0_reverse", "blstm.lstm.bias_ih_l0_reverse", "blstm.lstm.bias_hh_l0_reverse",
-                "blstm.fcn.0.weight", "blstm.fcn.0.bias", "blstm.fcn.2.weight", "blstm.fcn.2.bias",
-                "blstm.fcn.4.weight", "blstm.fcn.4.bias", "blstm.fcn.6.weight", "blstm.fcn.6.bias",
-                "blstm.fcn.8.weight", "blstm.fcn.8.bias", "blstm.out.weight", "blstm.out.bias"
+                "fcn.fcn.0.weight", "fcn.fcn.0.bias", "fcn.fcn.2.weight", "fcn.fcn.2.bias",
+                "fcn.fcn.4.weight", "fcn.fcn.4.bias", "fcn.fcn.6.weight", "fcn.fcn.6.bias",
+                "fcn.fcn.8.weight", "fcn.fcn.8.bias", "fcn.out.weight", "fcn.out.bias"
             }
 
             # Filter out ignored missing keys
@@ -80,60 +78,88 @@ class LightningEsmBlstm(L.LightningModule):
 
     def forward(self, input_ids, attention_mask):
         esm_last_hidden_state = self.esm(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state # shape: [batch_size, sequence_length, embedding_dim]
-        esm_aa_embedding = esm_last_hidden_state[:, 1:-1, :] # Amino Acid-level representations, [batch_size, sequence_length-2, embedding_dim], excludes 1st and last tokens
-        return self.blstm(esm_aa_embedding) # [batch_size]
+        esm_cls_embedding = esm_last_hidden_state[:, 0, :]  # CLS token embedding (sequence-level representations), [batch_size, embedding_dim]
+        binding_preds, expression_preds = self.fcn(esm_cls_embedding) # [batch_size]
+        return binding_preds, expression_preds
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
     
     def step(self, batch):
-        _, seqs, targets = batch
-        targets = targets.to(self.device).float()
-        batch_size = targets.size(0)
+        _, seqs, binding_targets, expression_targets = batch
+        binding_targets = binding_targets.to(self.device).float()
+        expression_targets = expression_targets.to(self.device).float()
+        batch_size = binding_targets.size(0)
 
         tokenized = self.tokenizer(seqs, return_tensors="pt", padding=True, truncation=True, max_length=self.max_len)
         tokenized = {k: v.to(self.device) for k, v in tokenized.items()}
 
         preds = self(input_ids=tokenized["input_ids"], attention_mask=tokenized["attention_mask"])
-        loss = self.loss_fn(preds, targets)  # Sum of squared errors (sse)
+        binding_loss = self.loss_fn(preds, binding_targets)  # Sum of squared errors (sse)
+        expression_loss = self.loss_fn(preds, expression_targets)  # Sum of squared errors (sse)
+        be_loss = binding_loss + expression_loss
 
-        return loss, batch_size
+        return be_loss, binding_loss, expression_loss, batch_size
 
     def training_step(self, batch, batch_idx):
-        loss, batch_size = self.step(batch)
+        be_loss, binding_loss, expression_loss, batch_size = self.step(batch)
         
         # Accumulate (reduce_fx="sum") losses and total items in batch
-        self.log("train_sum_se", loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
+        self.log("train_binding_sum_se", binding_loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
+        self.log("train_expression_sum_se", expression_loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
+        self.log("train_be_sum_se", be_loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
         self.log("train_total_items", batch_size, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
-        return loss
-
+        return be_loss 
+    
     def on_train_epoch_end(self):
-        sum_se = self.trainer.callback_metrics.get("train_sum_se")
+        binding_sum_se = self.trainer.callback_metrics.get("train_binding_sum_se")
+        expression_sum_se = self.trainer.callback_metrics.get("train_expression_sum_se")
+        be_sum_se = self.trainer.callback_metrics.get("train_be_sum_se")
         total_items = self.trainer.callback_metrics.get("train_total_items")
         
-        if sum_se is not None and total_items and total_items > 0:
-            train_mse = sum_se / total_items
-            train_rmse = torch.sqrt(train_mse)
-            self.log("train_mse", train_mse, prog_bar=True) # Already synced in step
-            self.log("train_rmse", train_rmse, prog_bar=True) # Already synced in step
+        if all(i is not None for i in [binding_sum_se, expression_sum_se, be_sum_se]) and total_items and total_items > 0:
+            train_binding_mse = binding_sum_se / total_items
+            train_binding_rmse = torch.sqrt(train_binding_mse)
+            train_expression_mse = expression_sum_se / total_items
+            train_expression_rmse = torch.sqrt(train_expression_mse)
+            train_be_mse = be_sum_se / total_items
+            train_be_rmse = torch.sqrt(train_be_mse)
+            self.log("train_binding_mse", train_binding_mse, prog_bar=True) # Already synced in step
+            self.log("train_binding_rmse", train_binding_rmse, prog_bar=True) # Already synced in step
+            self.log("train_expression_mse", train_expression_mse, prog_bar=True) # Already synced in step
+            self.log("train_expression_rmse", train_expression_rmse, prog_bar=True) # Already synced in step
+            self.log("train_be_mse", train_be_mse, prog_bar=True) # Already synced in step
+            self.log("train_be_rmse", train_be_rmse, prog_bar=True) # Already synced in step
 
     def validation_step(self, batch, batch_idx):
-        loss, batch_size = self.step(batch)
+        be_loss, binding_loss, expression_loss, batch_size = self.step(batch)
         
-        # Accumulate (reduce_fx="sum") losses and total items in batches
-        self.log("val_sum_se", loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
+        # Accumulate (reduce_fx="sum") losses and total items in batch
+        self.log("val_binding_sum_se", binding_loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
+        self.log("val_expression_sum_se", expression_loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
+        self.log("val_be_sum_se", be_loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
         self.log("val_total_items", batch_size, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
-        return loss
+        return be_loss 
 
     def on_validation_epoch_end(self):
-        sum_se = self.trainer.callback_metrics.get("val_sum_se")
+        binding_sum_se = self.trainer.callback_metrics.get("val_binding_sum_se")
+        expression_sum_se = self.trainer.callback_metrics.get("val_expression_sum_se")
+        be_sum_se = self.trainer.callback_metrics.get("val_be_sum_se")
         total_items = self.trainer.callback_metrics.get("val_total_items")
         
-        if sum_se is not None and total_items and total_items > 0:
-            val_mse = sum_se / total_items
-            val_rmse = torch.sqrt(val_mse)
-            self.log("val_mse", val_mse, prog_bar=True) # Already synced in step
-            self.log("val_rmse", val_rmse, prog_bar=True) # Already synced in step
+        if all(i is not None for i in [binding_sum_se, expression_sum_se, be_sum_se]) and total_items and total_items > 0:
+            val_binding_mse = binding_sum_se / total_items
+            val_binding_rmse = torch.sqrt(val_binding_mse)
+            val_expression_mse = expression_sum_se / total_items
+            val_expression_rmse = torch.sqrt(val_expression_mse)
+            val_be_mse = be_sum_se / total_items
+            val_be_rmse = torch.sqrt(val_be_mse)
+            self.log("val_binding_mse", val_binding_mse, prog_bar=True) # Already synced in step
+            self.log("val_binding_rmse", val_binding_rmse, prog_bar=True) # Already synced in step
+            self.log("val_expression_mse", val_expression_mse, prog_bar=True) # Already synced in step
+            self.log("val_expression_rmse", val_expression_rmse, prog_bar=True) # Already synced in step
+            self.log("val_be_mse", val_be_mse, prog_bar=True) # Already synced in step
+            self.log("val_be_rmse", val_be_rmse, prog_bar=True) # Already synced in step
 
 if __name__ == "__main__":
 
@@ -143,12 +169,12 @@ if __name__ == "__main__":
 
     # Logger 
     slurm_job_id = os.environ.get("SLURM_JOB_ID")
-    logger = CSVLogger(save_dir="logs", name=f"esm_blstm", version=f"version_{slurm_job_id}" if slurm_job_id is not None else None)
+    logger = CSVLogger(save_dir="logs", name=f"esm_fcn_BE", version=f"version_{slurm_job_id}" if slurm_job_id is not None else None)
 
     # Save ONLY the best model in logs/version_x/ckpt
     best_model_checkpoint = ModelCheckpoint(
-        filename="best_model-epoch={epoch:02d}.val_rmse={val_rmse:.4f}",
-        monitor="val_rmse",
+        filename="best_model-epoch={epoch:02d}.val_be_rmse={val_be_rmse:.4f}.val_binding_rmse={val_binding_rmse:.4f}.val_expression_rmse={val_expression_rmse:.4f}",
+        monitor="val_be_rmse",
         mode="min",
         save_top_k=1,
         save_last=False,
@@ -176,7 +202,7 @@ if __name__ == "__main__":
 
     # Trainer setup 
     trainer= L.Trainer(
-        max_epochs=1000,
+        max_epochs=25,
         limit_train_batches=1.0,    # 1.0 is 100% of batches
         limit_val_batches=1.0,      # 1.0 is 100% of batches
         strategy=DDPStrategy(find_unused_parameters=True), 
@@ -201,18 +227,14 @@ if __name__ == "__main__":
     # Data directory (no results_dir needed since versioning handles it automatically)
     data_dir= os.path.join(os.path.dirname(__file__), f"../../../data/dms")
 
-    # BLSTM input, size should match used ESM model embedding_dim size
+    # FCN input, size should match used ESM model embedding_dim size
     size = 320
-    lstm_input_size = size
-    lstm_hidden_size = size
-    lstm_num_layers = 1        
-    lstm_bidrectional = True   
+    fcn_input_size = size  
     fcn_hidden_size = size
     fcn_num_layers = 5
-    blstm = BLSTM(lstm_input_size, lstm_hidden_size, lstm_num_layers, lstm_bidrectional, fcn_hidden_size, fcn_num_layers)
+    fcn = FCN_BE(fcn_input_size, fcn_hidden_size, fcn_num_layers)
 
     # Initialize DataModule and model
-    bORe_tag = "binding"    # Binding or Expression
     from_esm_mlm = None  # None or path to ESM_MLM checkpoint, if fine-tuning
     from_checkpoint = None
 
@@ -220,21 +242,19 @@ if __name__ == "__main__":
         if trainer.global_rank == 0: print(f"NOTICE: 'from_checkpoint' is set, so 'from_esm_mlm' ({from_esm_mlm}) will be ignored.")
         from_esm_mlm = None
 
-    dm = DmsDataModule(
+    dm = DmsBeDataModule(
         data_dir=data_dir,
-        bORe_tag=bORe_tag,  
         torch_geometric_tag=False, 
         batch_size=64,
         num_workers=4, 
         seed=seed
     )
 
-    model = LightningEsmBlstm(
-        bORe_tag=bORe_tag,                  
+    model = LightningEsmFcnBe(                 
         from_checkpoint=from_checkpoint,    
         lr=1e-5,
         max_len=280,
-        blstm_model=blstm,
+        fcn_model=fcn,
         esm_version="facebook/esm2_t6_8M_UR50D",
         freeze_esm_weights=False,
         from_esm_mlm=from_esm_mlm

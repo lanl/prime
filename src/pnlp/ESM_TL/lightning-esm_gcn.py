@@ -6,47 +6,20 @@ import os
 import time
 import datetime
 import torch
-import numpy as np
 from torch import nn
-from collections import Counter
 
 import lightning as L
-from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar, Callback
+from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.strategies import DDPStrategy
 
 from transformers import EsmTokenizer, EsmModel
 
-from torch_geometric.nn import SAGEConv, global_mean_pool
 from torch_geometric.data import Data, Batch
 
-from pnlp.ESM_TL.dms_data_module import DMSDataModule  
+from pnlp.ESM_TL.dms_models import GraphSAGE
+from pnlp.ESM_TL.dms_data_module import DmsDataModule  
 from pnlp.ESM_TL.dms_plotter import LossFigureCallback
-
-class GraphSAGE(L.LightningModule):
-    def __init__(self, input_channels, hidden_channels, fcn_num_layers):
-        super(GraphSAGE, self).__init__()
-        self.conv1 = SAGEConv(input_channels, hidden_channels)
-        self.conv2 = SAGEConv(hidden_channels, hidden_channels)
-
-        # FCN layer(s)
-        layers = []
-
-        for _ in range(fcn_num_layers):
-            layers.append(nn.Linear(hidden_channels, hidden_channels))
-            layers.append(nn.ReLU())
-
-        self.fcn = nn.Sequential(*layers)
-        
-        self.output = nn.Linear(hidden_channels, 1)
-
-    def forward(self, x, edge_index, batch):
-        x = self.conv1(x, edge_index)
-        x = self.conv2(x, edge_index)
-        x = global_mean_pool(x, batch)
-        x = self.fcn(x)
-        output = self.output(x).squeeze(1)
-        return output
 
 class LightningEsmGcn(L.LightningModule):
     def __init__(self, 
@@ -261,7 +234,7 @@ if __name__ == "__main__":
         if trainer.global_rank == 0: print(f"NOTICE: 'from_checkpoint' is set, so 'from_esm_mlm' ({from_esm_mlm}) will be ignored.")
         from_esm_mlm = None
 
-    dm = DMSDataModule(
+    dm = DmsDataModule(
         data_dir=data_dir,
         bORe_tag=bORe_tag,  
         torch_geometric_tag=True, 

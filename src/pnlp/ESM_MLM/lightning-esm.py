@@ -15,7 +15,7 @@ from lightning.pytorch.strategies import DDPStrategy
 
 from transformers import EsmTokenizer, EsmForMaskedLM
 
-from pnlp.ESM_MLM.rbd_data_module import RBDDataModule  
+from pnlp.ESM_MLM.rbd_data_module import RbdDataModule  
 from pnlp.ESM_MLM.rbd_plotter import AccuracyLossFigureCallback, AAHeatmapFigureCallback
 
 class LightningProteinESM(L.LightningModule):
@@ -206,7 +206,7 @@ if __name__ == "__main__":
     # Initialize DataModule and model
     from_checkpoint = None
 
-    dm = RBDDataModule(
+    dm = RbdDataModule(
         data_dir=data_dir,
         batch_size=64,
         num_workers=4, 

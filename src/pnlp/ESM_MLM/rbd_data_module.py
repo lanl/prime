@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader, Dataset
 
 import lightning as L
 
-class RBDDataset(Dataset):
+class RbdDataset(Dataset):
     def __init__(self, csv_file:str):
         try:
             self.full_df = pd.read_csv(csv_file, sep=',', header=0)
@@ -24,7 +24,7 @@ class RBDDataset(Dataset):
         # label, seq
         return self.full_df['seq_id'][idx], self.full_df['sequence'][idx]
 
-class RBDDataModule(L.LightningDataModule):
+class RbdDataModule(L.LightningDataModule):
     def __init__(self, data_dir: str, batch_size: int, num_workers: int, seed: int):
         super().__init__()
         self.data_dir = data_dir
@@ -38,11 +38,11 @@ class RBDDataModule(L.LightningDataModule):
     def setup(self, stage):
         # Called on every GPU
         if stage == 'fit':
-            self.train_dataset = RBDDataset(os.path.join(self.data_dir, "spikeprot0528.clean.uniq.noX.RBD.metadata.variants_train.csv"))
-            self.val_dataset = RBDDataset(os.path.join(self.data_dir, "spikeprot0528.clean.uniq.noX.RBD.metadata.variants_test.csv"))
+            self.train_dataset = RbdDataset(os.path.join(self.data_dir, "spikeprot0528.clean.uniq.noX.RBD.metadata.variants_train.csv"))
+            self.val_dataset = RbdDataset(os.path.join(self.data_dir, "spikeprot0528.clean.uniq.noX.RBD.metadata.variants_test.csv"))
 
         if stage == 'test':
-            self.test_dataset = RBDDataset(os.path.join(self.data_dir, "spikeprot0528.clean.uniq.noX.RBD.metadata.variants_test.csv"))
+            self.test_dataset = RbdDataset(os.path.join(self.data_dir, "spikeprot0528.clean.uniq.noX.RBD.metadata.variants_test.csv"))
 
     def train_dataloader(self):
         return DataLoader(
@@ -82,7 +82,7 @@ def test_data_module():
     seed = 0
 
     # Initialize the data module
-    data_module = RBDDataModule(data_dir, batch_size, num_workers, seed)
+    data_module = RbdDataModule(data_dir, batch_size, num_workers, seed)
 
     # == Test case 1: Setup and train dataloader == 
     print("Test case 1: Setup and train dataloader")

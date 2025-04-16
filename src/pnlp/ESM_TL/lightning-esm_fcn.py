@@ -6,49 +6,18 @@ import os
 import time
 import datetime
 import torch
-import numpy as np
 from torch import nn
-from collections import Counter
 
 import lightning as L
-from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar, Callback
+from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.strategies import DDPStrategy
 
 from transformers import EsmTokenizer, EsmModel
 
-from pnlp.ESM_TL.dms_data_module import DMSDataModule  
+from pnlp.ESM_TL.dms_models import FCN
+from pnlp.ESM_TL.dms_data_module import DmsDataModule  
 from pnlp.ESM_TL.dms_plotter import LossFigureCallback
-
-class FCN(L.LightningModule):
-    """ Fully Connected Network """
-
-    def __init__(self,
-                 fcn_input_size,    # The number of input features
-                 fcn_hidden_size,   # The number of features in hidden layer of FCN.
-                 fcn_num_layers):   # The number of fcn layers  
-        super().__init__()
-
-        # Creating a list of layers for the FCN
-        # Subsequent layers after 1st should be equal to hidden_size for input_size
-        layers = []
-        input_size = fcn_input_size
-
-        for _ in range(fcn_num_layers):
-            layers.append(nn.Linear(input_size, fcn_hidden_size))
-            layers.append(nn.ReLU())
-            input_size = fcn_hidden_size
-
-        # FCN layers
-        self.fcn = nn.Sequential(*layers)
-
-        # FCN output layer 
-        self.out = nn.Linear(fcn_hidden_size, 1)
-
-    def forward(self, x):
-        fcn_out = self.fcn(x)
-        prediction = self.out(fcn_out).squeeze(1)  # [batch_size]
-        return prediction
 
 class LightningEsmFcn(L.LightningModule):
     def __init__(self, 
@@ -239,14 +208,14 @@ if __name__ == "__main__":
 
     # Initialize DataModule and model
     bORe_tag = "binding"    # Binding or Expression
-    from_esm_mlm = "../ESM_MLM/logs/version_21749507/ckpt/best_model-epoch=23.val_loss=0.0023.val_accuracy=99.6448.ckpt"  # None or path to ESM_MLM checkpoint, if fine-tuning
+    from_esm_mlm = None  # None or path to ESM_MLM checkpoint, if fine-tuning
     from_checkpoint = None
 
     if from_checkpoint is not None and from_esm_mlm is not None:
         if trainer.global_rank == 0: print(f"NOTICE: 'from_checkpoint' is set, so 'from_esm_mlm' ({from_esm_mlm}) will be ignored.")
         from_esm_mlm = None
 
-    dm = DMSDataModule(
+    dm = DmsDataModule(
         data_dir=data_dir,
         bORe_tag=bORe_tag,  
         torch_geometric_tag=False, 
