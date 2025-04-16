@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-PyTorch Lightning ESM-FCN model runner.
+PyTorch Lightning ESM-BLSTM model runner.
 """
 import os
 import time
@@ -20,45 +20,63 @@ from transformers import EsmTokenizer, EsmModel
 from pnlp.ESM_TL.dms_data_module import DMSDataModule  
 from pnlp.ESM_TL.dms_plotter import LossFigureCallback
 
-class FCN(L.LightningModule):
-    """ Fully Connected Network """
+class BLSTM(L.LightningModule):
+    """ Bidirectional LSTM. Output is embedding layer, not prediction value."""
 
     def __init__(self,
-                 fcn_input_size,    # The number of input features
-                 fcn_hidden_size,   # The number of features in hidden layer of FCN.
-                 fcn_num_layers):   # The number of fcn layers  
+                 lstm_input_size,    # The number of expected features.
+                 lstm_hidden_size,   # The number of features in hidden state h.
+                 lstm_num_layers,    # Number of recurrent layers in LSTM.
+                 lstm_bidirectional, # Bidrectional LSTM.
+                 fcn_hidden_size,    # The number of features in hidden layer of CN.
+                 fcn_num_layers):    # The number of fcn layers
         super().__init__()
 
-        # Creating a list of layers for the FCN
-        # Subsequent layers after 1st should be equal to hidden_size for input_size
+        # LSTM layer
+        self.lstm = nn.LSTM(input_size=lstm_input_size,
+                            hidden_size=lstm_hidden_size,
+                            num_layers=lstm_num_layers,
+                            bidirectional=lstm_bidirectional,
+                            batch_first=True)           
+
+        # FCN layer(s)
         layers = []
-        input_size = fcn_input_size
+        input_size = 2 * lstm_hidden_size if lstm_bidirectional else lstm_hidden_size
 
         for _ in range(fcn_num_layers):
             layers.append(nn.Linear(input_size, fcn_hidden_size))
             layers.append(nn.ReLU())
             input_size = fcn_hidden_size
 
-        # FCN layers
         self.fcn = nn.Sequential(*layers)
 
-        # FCN output layer 
+        # FCN output layer
         self.out = nn.Linear(fcn_hidden_size, 1)
 
     def forward(self, x):
-        fcn_out = self.fcn(x)
+        if x.dim() == 2:
+            x = x.unsqueeze(1)  # Add a sequence length dimension of 1, now [batch_size, sequence_length, features]
+
+        num_directions = 2 if self.lstm.bidirectional else 1
+        h_0 = torch.zeros(num_directions * self.lstm.num_layers, x.size(0), self.lstm.hidden_size, device=x.device)
+        c_0 = torch.zeros(num_directions * self.lstm.num_layers, x.size(0), self.lstm.hidden_size, device=x.device)
+
+        lstm_out, (h_n, c_n) = self.lstm(x, (h_0, c_0))
+        lstm_final_out = lstm_out[:, -1, :]
+        fcn_out = self.fcn(lstm_final_out)
         prediction = self.out(fcn_out).squeeze(1)  # [batch_size]
+
         return prediction
 
-class LightningEsmFcn(L.LightningModule):
+class LightningEsmBlstm(L.LightningModule):
     def __init__(self, 
                  bORe_tag:str, from_checkpoint:str, # Only set for hparams save
-                 lr: float, max_len: int, fcn_model: FCN, esm_version="facebook/esm2_t6_8M_UR50D", freeze_esm_weights=True, from_esm_mlm=None):
+                 lr: float, max_len: int, blstm_model: BLSTM, esm_version="facebook/esm2_t6_8M_UR50D", freeze_esm_weights=True, from_esm_mlm=None):
         super().__init__()
         self.save_hyperparameters(ignore=["fcn_model"])  # Save all init parameters to self.hparams
         self.tokenizer = EsmTokenizer.from_pretrained(esm_version, cache_dir="../../../.cache")
         self.esm = EsmModel.from_pretrained(esm_version, cache_dir="../../../.cache")
-        self.fcn = fcn_model
+        self.blstm = blstm_model
         self.loss_fn = nn.MSELoss(reduction="sum")
         self.lr = lr
         self.max_len = max_len
@@ -86,9 +104,11 @@ class LightningEsmFcn(L.LightningModule):
             # Define keys to ignore in missing list, these are from ESM_FCN and won't exist in the ESM_MLM
             ignored_missing = {
                 "esm.pooler.dense.weight", "esm.pooler.dense.bias",
-                "fcn.fcn.0.weight", "fcn.fcn.0.bias", "fcn.fcn.2.weight", "fcn.fcn.2.bias",
-                "fcn.fcn.4.weight", "fcn.fcn.4.bias", "fcn.fcn.6.weight", "fcn.fcn.6.bias",
-                "fcn.fcn.8.weight", "fcn.fcn.8.bias", "fcn.out.weight", "fcn.out.bias"
+                "blstm.lstm.weight_ih_l0", "blstm.lstm.weight_hh_l0", "blstm.lstm.bias_ih_l0", "blstm.lstm.bias_hh_l0",
+                "blstm.lstm.weight_ih_l0_reverse", "blstm.lstm.weight_hh_l0_reverse", "blstm.lstm.bias_ih_l0_reverse", "blstm.lstm.bias_hh_l0_reverse",
+                "blstm.fcn.0.weight", "blstm.fcn.0.bias", "blstm.fcn.2.weight", "blstm.fcn.2.bias",
+                "blstm.fcn.4.weight", "blstm.fcn.4.bias", "blstm.fcn.6.weight", "blstm.fcn.6.bias",
+                "blstm.fcn.8.weight", "blstm.fcn.8.bias", "blstm.out.weight", "blstm.out.bias"
             }
 
             # Filter out ignored missing keys
@@ -109,8 +129,8 @@ class LightningEsmFcn(L.LightningModule):
 
     def forward(self, input_ids, attention_mask):
         esm_last_hidden_state = self.esm(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state # shape: [batch_size, sequence_length, embedding_dim]
-        esm_cls_embedding = esm_last_hidden_state[:, 0, :]  # CLS token embedding (sequence-level representations), [batch_size, embedding_dim]
-        return self.fcn(esm_cls_embedding)  # [batch_size]
+        esm_aa_embedding = esm_last_hidden_state[:, 1:-1, :] # Amino Acid-level representations, [batch_size, sequence_length-2, embedding_dim], excludes 1st and last tokens
+        return self.blstm(esm_aa_embedding) # [batch_size]
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
@@ -172,7 +192,7 @@ if __name__ == "__main__":
 
     # Logger 
     slurm_job_id = os.environ.get("SLURM_JOB_ID")
-    logger = CSVLogger(save_dir="logs", name=f"esm_fcn", version=f"version_{slurm_job_id}" if slurm_job_id is not None else None)
+    logger = CSVLogger(save_dir="logs", name=f"esm_blstm", version=f"version_{slurm_job_id}" if slurm_job_id is not None else None)
 
     # Save ONLY the best model in logs/version_x/ckpt
     best_model_checkpoint = ModelCheckpoint(
@@ -205,7 +225,7 @@ if __name__ == "__main__":
 
     # Trainer setup 
     trainer= L.Trainer(
-        max_epochs=1000,
+        max_epochs=500,
         limit_train_batches=1.0,    # 1.0 is 100% of batches
         limit_val_batches=1.0,      # 1.0 is 100% of batches
         strategy=DDPStrategy(find_unused_parameters=True), 
@@ -230,12 +250,15 @@ if __name__ == "__main__":
     # Data directory (no results_dir needed since versioning handles it automatically)
     data_dir= os.path.join(os.path.dirname(__file__), f"../../../data/dms")
 
-    # FCN input, size should match used ESM model embedding_dim size
+    # BLSTM input, size should match used ESM model embedding_dim size
     size = 320
-    fcn_input_size = size  
+    lstm_input_size = size
+    lstm_hidden_size = size
+    lstm_num_layers = 1        
+    lstm_bidrectional = True   
     fcn_hidden_size = size
     fcn_num_layers = 5
-    fcn = FCN(fcn_input_size, fcn_hidden_size, fcn_num_layers)
+    blstm = BLSTM(lstm_input_size, lstm_hidden_size, lstm_num_layers, lstm_bidrectional, fcn_hidden_size, fcn_num_layers)
 
     # Initialize DataModule and model
     bORe_tag = "binding"    # Binding or Expression
@@ -255,12 +278,12 @@ if __name__ == "__main__":
         seed=seed
     )
 
-    model = LightningEsmFcn(
+    model = LightningEsmBlstm(
         bORe_tag=bORe_tag,                  
         from_checkpoint=from_checkpoint,    
         lr=1e-5,
         max_len=280,
-        fcn_model=fcn,
+        blstm_model=blstm,
         esm_version="facebook/esm2_t6_8M_UR50D",
         freeze_esm_weights=False,
         from_esm_mlm=from_esm_mlm

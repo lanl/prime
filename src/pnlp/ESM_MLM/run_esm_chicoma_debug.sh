@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=ESM_MLM-dbg
+#SBATCH --job-name=DEBUG
 #SBATCH --output=logs/version_%j/slurm_out/%j.out	     # Redirect standard out to slurm_outs
 #SBATCH --error=logs/version_%j/slurm_out/%j.err	     # Redirect standard err to slurm_outs
 #SBATCH --partition gpu                                  # GPU partition

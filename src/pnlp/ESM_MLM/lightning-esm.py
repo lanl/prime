@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-PyTorch Lightning ESM (with masked language head) model runner.
+PyTorch Lightning ESM-MLM (with masked language head) model runner.
 """
 import os
 import time
@@ -95,8 +95,8 @@ class LightningProteinESM(L.LightningModule):
         batch_size, loss, _, _, accuracy = self.step(batch)
 
         # Log metrics
-        self.log('train_loss', loss, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
-        self.log('train_accuracy', accuracy, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
+        self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
+        self.log("train_accuracy", accuracy, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
 
         return loss
     
@@ -111,8 +111,8 @@ class LightningProteinESM(L.LightningModule):
         self.validation_step_aa_preds.extend(aa_keys)
 
         # Log metrics
-        self.log('val_loss', loss, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
-        self.log('val_accuracy', accuracy, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
+        self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
+        self.log("val_accuracy", accuracy, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
 
         return loss
     
@@ -125,7 +125,7 @@ class LightningProteinESM(L.LightningModule):
         os.makedirs(aa_preds_dir, exist_ok = True)
         preds_csv_path = os.path.join(aa_preds_dir, f"aa_predictions_epoch{self.current_epoch}_rank{self.global_rank}.csv")
 
-        with open(preds_csv_path, 'w') as fb:
+        with open(preds_csv_path, "w") as fb:
             # Only write a header row
             fb.write(f"expected_aa->predicted_aa,count\n") # changed the header row to only include count
 
@@ -136,7 +136,7 @@ class LightningProteinESM(L.LightningModule):
         # Clear the stored outputs, as the current epoch counts have already been recorded.
         self.validation_step_aa_preds.clear()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
 
     # Random seed
     seed = 0
@@ -167,7 +167,7 @@ if __name__ == '__main__':
     )
 
     # Get correct number of nodes/devices from slurm
-    num_nodes = os.environ.get('SLURM_JOB_NUM_NODES')
+    num_nodes = os.environ.get("SLURM_JOB_NUM_NODES")
     ntasks_per_node = os.environ.get("SLURM_NTASKS_PER_NODE")
 
     num_nodes = int(num_nodes) if num_nodes else 1
@@ -201,7 +201,7 @@ if __name__ == '__main__':
     all_epochs_checkpoint.dirpath = os.path.join(ckpt_dir, "all_epochs")
 
     # Data directory (no results_dir needed since versioning handles it automatically)
-    data_dir= os.path.join(os.path.dirname(__file__), f'../../../data/rbd')
+    data_dir= os.path.join(os.path.dirname(__file__), f"../../../data/rbd")
 
     # Initialize DataModule and model
     from_checkpoint = None
