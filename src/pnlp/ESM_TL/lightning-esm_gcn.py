@@ -220,7 +220,7 @@ if __name__ == "__main__":
 
     # Trainer setup 
     trainer= L.Trainer(
-        max_epochs=500,
+        max_epochs=1000,
         limit_train_batches=1.0,    # 1.0 is 100% of batches
         limit_val_batches=1.0,      # 1.0 is 100% of batches
         strategy=DDPStrategy(find_unused_parameters=True), 
@@ -254,7 +254,7 @@ if __name__ == "__main__":
 
     # Initialize DataModule and model
     bORe_tag = "binding"    # Binding or Expression
-    from_esm_mlm = "../ESM_MLM/logs/version_21749507/ckpt/best_model-epoch=23.val_loss=0.0023.val_accuracy=99.6448.ckpt"  # None or path to ESM_MLM checkpoint, if fine-tuning
+    from_esm_mlm = None  # None or path to ESM_MLM checkpoint, if fine-tuning
     from_checkpoint = None
 
     if from_checkpoint is not None and from_esm_mlm is not None:
