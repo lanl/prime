@@ -2,6 +2,7 @@
 """
 PyTorch Lightning ESM-FCN model runner.
 """
+import argparse
 import os
 import time
 import datetime
@@ -17,11 +18,11 @@ from transformers import EsmTokenizer, EsmModel
 
 from pnlp.ESM_TL.dms_models import FCN_BE
 from pnlp.ESM_TL.dms_data_module import DmsBeDataModule  
-from pnlp.ESM_TL.dms_plotter import LossFigureCallback
+from pnlp.ESM_TL.dms_plotter import LossBeFigureCallback
 
 class LightningEsmFcnBe(L.LightningModule):
     def __init__(self, 
-                 bORe_tag:str, from_checkpoint:str, # Only set for hparams save
+                 from_checkpoint:str, # Only set for hparams save
                  lr: float, max_len: int, fcn_model: FCN_BE, esm_version="facebook/esm2_t6_8M_UR50D", freeze_esm_weights=True, from_esm_mlm=None):
         super().__init__()
         self.save_hyperparameters(ignore=["fcn_model"])  # Save all init parameters to self.hparams
@@ -57,7 +58,8 @@ class LightningEsmFcnBe(L.LightningModule):
                 "esm.pooler.dense.weight", "esm.pooler.dense.bias",
                 "fcn.fcn.0.weight", "fcn.fcn.0.bias", "fcn.fcn.2.weight", "fcn.fcn.2.bias",
                 "fcn.fcn.4.weight", "fcn.fcn.4.bias", "fcn.fcn.6.weight", "fcn.fcn.6.bias",
-                "fcn.fcn.8.weight", "fcn.fcn.8.bias", "fcn.out.weight", "fcn.out.bias"
+                "fcn.fcn.8.weight", "fcn.fcn.8.bias", "fcn.out.weight", "fcn.out.bias",
+                "fcn.binding_head.weight", "fcn.binding_head.bias", "fcn.expression_head.weight", "fcn.expression_head.bias"
             }
 
             # Filter out ignored missing keys
@@ -94,9 +96,9 @@ class LightningEsmFcnBe(L.LightningModule):
         tokenized = self.tokenizer(seqs, return_tensors="pt", padding=True, truncation=True, max_length=self.max_len)
         tokenized = {k: v.to(self.device) for k, v in tokenized.items()}
 
-        preds = self(input_ids=tokenized["input_ids"], attention_mask=tokenized["attention_mask"])
-        binding_loss = self.loss_fn(preds, binding_targets)  # Sum of squared errors (sse)
-        expression_loss = self.loss_fn(preds, expression_targets)  # Sum of squared errors (sse)
+        binding_preds, expression_preds = self(input_ids=tokenized["input_ids"], attention_mask=tokenized["attention_mask"])
+        binding_loss = self.loss_fn(binding_preds, binding_targets)  # Sum of squared errors (sse)
+        expression_loss = self.loss_fn(expression_preds, expression_targets)  # Sum of squared errors (sse)
         be_loss = binding_loss + expression_loss
 
         return be_loss, binding_loss, expression_loss, batch_size
@@ -162,6 +164,14 @@ class LightningEsmFcnBe(L.LightningModule):
             self.log("val_be_rmse", val_be_rmse, prog_bar=True) # Already synced in step
 
 if __name__ == "__main__":
+    
+    parser = argparse.ArgumentParser(description="Run ESM-FCN BE model with Lightning")
+    parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
+    parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs")
+    parser.add_argument("--from_checkpoint", type=str, default=None, help="Path to existing checkpoint to resume training from")
+    parser.add_argument("--from_esm_mlm", type=str, default=None, help="Path to pretrained ESM_MLM checkpoint")
+    parser.add_argument("--freeze_esm", action="store_true", help="Whether to freeze ESM model weights. Abscence of flag sets to False.")
+    args = parser.parse_args()
 
     # Random seed
     seed = 0
@@ -169,7 +179,7 @@ if __name__ == "__main__":
 
     # Logger 
     slurm_job_id = os.environ.get("SLURM_JOB_ID")
-    logger = CSVLogger(save_dir="logs", name=f"esm_fcn_BE", version=f"version_{slurm_job_id}" if slurm_job_id is not None else None)
+    logger = CSVLogger(save_dir="logs", name=f"esm_fcn_be", version=f"version_{slurm_job_id}" if slurm_job_id is not None else None)
 
     # Save ONLY the best model in logs/version_x/ckpt
     best_model_checkpoint = ModelCheckpoint(
@@ -202,7 +212,7 @@ if __name__ == "__main__":
 
     # Trainer setup 
     trainer= L.Trainer(
-        max_epochs=25,
+        max_epochs=args.num_epochs,
         limit_train_batches=1.0,    # 1.0 is 100% of batches
         limit_val_batches=1.0,      # 1.0 is 100% of batches
         strategy=DDPStrategy(find_unused_parameters=True), 
@@ -214,7 +224,7 @@ if __name__ == "__main__":
             best_model_checkpoint, 
             all_epochs_checkpoint, 
             TQDMProgressBar(refresh_rate=25),   # Update every 25 batches
-            LossFigureCallback(),               # For loss plots
+            LossBeFigureCallback(),               # For loss plots
         ]
     )
 
@@ -235,8 +245,8 @@ if __name__ == "__main__":
     fcn = FCN_BE(fcn_input_size, fcn_hidden_size, fcn_num_layers)
 
     # Initialize DataModule and model
-    from_esm_mlm = None  # None or path to ESM_MLM checkpoint, if fine-tuning
-    from_checkpoint = None
+    from_checkpoint = args.from_checkpoint
+    from_esm_mlm = args.from_esm_mlm
 
     if from_checkpoint is not None and from_esm_mlm is not None:
         if trainer.global_rank == 0: print(f"NOTICE: 'from_checkpoint' is set, so 'from_esm_mlm' ({from_esm_mlm}) will be ignored.")
@@ -252,11 +262,11 @@ if __name__ == "__main__":
 
     model = LightningEsmFcnBe(                 
         from_checkpoint=from_checkpoint,    
-        lr=1e-5,
+        lr=args.lr,
         max_len=280,
         fcn_model=fcn,
         esm_version="facebook/esm2_t6_8M_UR50D",
-        freeze_esm_weights=False,
+        freeze_esm_weights=args.freeze_esm,
         from_esm_mlm=from_esm_mlm
     )
 

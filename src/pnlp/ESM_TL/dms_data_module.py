@@ -113,8 +113,8 @@ class DmsBeDataModule(L.LightningDataModule):
     def setup(self, stage):
         # Called on every GPU
         if stage == 'fit':
-            self.train_dataset = DmsDataset(os.path.join(self.data_dir, "mutation_combined_DMS_OLD_train.csv"))
-            self.val_dataset = DmsDataset(os.path.join(self.data_dir, "mutation_combined_DMS_OLD_test.csv"))
+            self.train_dataset = DmsBeDataset(os.path.join(self.data_dir, "mutation_combined_DMS_OLD_train.csv"))
+            self.val_dataset = DmsBeDataset(os.path.join(self.data_dir, "mutation_combined_DMS_OLD_test.csv"))
 
     def train_dataloader(self):
         loader = GeometricDataLoader if self.torch_geometric_tag else TorchDataLoader
