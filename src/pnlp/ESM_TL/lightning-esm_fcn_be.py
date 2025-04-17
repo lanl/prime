@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-PyTorch Lightning ESM-FCN model runner.
+PyTorch Lightning ESM-FCN BE model runner.
 """
 import argparse
 import os
@@ -53,13 +53,12 @@ class LightningEsmFcnBe(L.LightningModule):
             # Load weights non-strictly
             missing, unexpected = self.load_state_dict(new_state_dict, strict=False)
 
-            # Define keys to ignore in missing list, these are from ESM_FCN and won't exist in the ESM_MLM
+            # Define keys to ignore in missing list, these are from ESM_FCN BE and won't exist in the ESM_MLM
             ignored_missing = {
-                "esm.pooler.dense.weight", "esm.pooler.dense.bias",
-                "fcn.fcn.0.weight", "fcn.fcn.0.bias", "fcn.fcn.2.weight", "fcn.fcn.2.bias",
-                "fcn.fcn.4.weight", "fcn.fcn.4.bias", "fcn.fcn.6.weight", "fcn.fcn.6.bias",
-                "fcn.fcn.8.weight", "fcn.fcn.8.bias", "fcn.out.weight", "fcn.out.bias",
-                "fcn.binding_head.weight", "fcn.binding_head.bias", "fcn.expression_head.weight", "fcn.expression_head.bias"
+                "esm.pooler.dense.weight", "esm.pooler.dense.bias", 
+                "fcn.fcn.0.weight", "fcn.fcn.0.bias", "fcn.fcn.2.weight", "fcn.fcn.2.bias", "fcn.fcn.4.weight", 
+                "fcn.fcn.4.bias", "fcn.fcn.6.weight", "fcn.fcn.6.bias", "fcn.fcn.8.weight", "fcn.fcn.8.bias", 
+                "fcn.binding_out.weight", "fcn.binding_out.bias", "fcn.expression_out.weight", "fcn.expression_out.bias"
             }
 
             # Filter out ignored missing keys
@@ -81,7 +80,7 @@ class LightningEsmFcnBe(L.LightningModule):
     def forward(self, input_ids, attention_mask):
         esm_last_hidden_state = self.esm(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state # shape: [batch_size, sequence_length, embedding_dim]
         esm_cls_embedding = esm_last_hidden_state[:, 0, :]  # CLS token embedding (sequence-level representations), [batch_size, embedding_dim]
-        binding_preds, expression_preds = self.fcn(esm_cls_embedding) # [batch_size]
+        binding_preds, expression_preds = self.fcn(esm_cls_embedding) # [batch_size], [batch_size]
         return binding_preds, expression_preds
     
     def configure_optimizers(self):

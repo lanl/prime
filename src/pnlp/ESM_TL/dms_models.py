@@ -58,17 +58,17 @@ class FCN_BE(L.LightningModule):
         self.fcn = nn.Sequential(*layers)
 
         # FCN output layers - two separate heads for binding and expression
-        self.binding_head = nn.Linear(fcn_hidden_size, 1)
-        self.expression_head = nn.Linear(fcn_hidden_size, 1)
+        self.binding_out = nn.Linear(fcn_hidden_size, 1)
+        self.expression_out = nn.Linear(fcn_hidden_size, 1)
 
     def forward(self, x):
         fcn_out = self.fcn(x)
 
         # Task-specific predictions
-        binding_pred = self.binding_head(fcn_out).squeeze(1) # [batch_size]
-        expression_pred = self.expression_head(fcn_out).squeeze(1) # [batch_size]
+        binding_prediction = self.binding_out(fcn_out).squeeze(1) # [batch_size]
+        expression_prediction = self.expression_out(fcn_out).squeeze(1) # [batch_size]
 
-        return binding_pred, expression_pred
+        return binding_prediction, expression_prediction
     
 class BLSTM(L.LightningModule):
     """ Bidirectional LSTM. Output is embedding layer, not prediction value."""
@@ -115,7 +115,6 @@ class BLSTM(L.LightningModule):
         lstm_final_out = lstm_out[:, -1, :]
         fcn_out = self.fcn(lstm_final_out)
         prediction = self.out(fcn_out).squeeze(1)  # [batch_size]
-
         return prediction
     
 class BLSTM_BE(L.LightningModule):
@@ -149,8 +148,8 @@ class BLSTM_BE(L.LightningModule):
         self.fcn = nn.Sequential(*layers)
 
         # FCN output layers - two separate heads for binding and expression
-        self.binding_head = nn.Linear(fcn_hidden_size, 1)
-        self.expression_head = nn.Linear(fcn_hidden_size, 1)
+        self.binding_out = nn.Linear(fcn_hidden_size, 1)
+        self.expression_out = nn.Linear(fcn_hidden_size, 1)
 
     def forward(self, x):
         num_directions = 2 if self.lstm.bidirectional else 1
@@ -161,10 +160,9 @@ class BLSTM_BE(L.LightningModule):
         fcn_out = self.fcn(lstm_final_out)
 
         # Task-specific predictions
-        binding_pred = self.binding_head(fcn_out).squeeze(1) # [batch_size]
-        expression_pred = self.expression_head(fcn_out).squeeze(1) # [batch_size]
-
-        return binding_pred, expression_pred
+        binding_prediction = self.binding_out(fcn_out).squeeze(1) # [batch_size]
+        expression_prediction = self.expression_out(fcn_out).squeeze(1) # [batch_size]
+        return binding_prediction, expression_prediction
     
 class GraphSAGE(L.LightningModule):
     def __init__(self, input_channels, hidden_channels, fcn_num_layers):
@@ -181,15 +179,15 @@ class GraphSAGE(L.LightningModule):
 
         self.fcn = nn.Sequential(*layers)
         
-        self.output = nn.Linear(hidden_channels, 1)
+        self.out = nn.Linear(hidden_channels, 1)
 
     def forward(self, x, edge_index, batch):
         x = self.conv1(x, edge_index)
         x = self.conv2(x, edge_index)
         x = global_mean_pool(x, batch)
         x = self.fcn(x)
-        output = self.output(x).squeeze(1)
-        return output
+        prediction = self.out(x).squeeze(1)
+        return prediction
     
 class GraphSAGE_BE(L.LightningModule):
     def __init__(self, input_channels, hidden_channels, fcn_num_layers):
@@ -206,16 +204,16 @@ class GraphSAGE_BE(L.LightningModule):
 
         self.fcn = nn.Sequential(*layers)
         
-        self.binding_output = nn.Linear(hidden_channels, 1)
-        self.expression_output = nn.Linear(hidden_channels, 1)
+        self.binding_out = nn.Linear(hidden_channels, 1)
+        self.expression_out = nn.Linear(hidden_channels, 1)
 
     def forward(self, x, edge_index, batch):
         x = self.conv1(x, edge_index)
         x = self.conv2(x, edge_index)
         x = global_mean_pool(x, batch)
         x = self.fcn(x)
-        binding_output = self.binding_output(x).squeeze(1)
-        expression_output = self.expression_output(x).squeeze(1)
-        return binding_output, expression_output
+        binding_prediction = self.binding_out(x).squeeze(1)
+        expression_prediction = self.binding_out(x).squeeze(1)
+        return binding_prediction, expression_prediction
     
 

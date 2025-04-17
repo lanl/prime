@@ -25,7 +25,7 @@ class LightningEsmBlstm(L.LightningModule):
                  binding_or_expression:str, from_checkpoint:str, # Only set for hparams save
                  lr: float, max_len: int, blstm_model: BLSTM, esm_version="facebook/esm2_t6_8M_UR50D", freeze_esm_weights=True, from_esm_mlm=None):
         super().__init__()
-        self.save_hyperparameters(ignore=["fcn_model"])  # Save all init parameters to self.hparams
+        self.save_hyperparameters(ignore=["blstm_model"])  # Save all init parameters to self.hparams
         self.tokenizer = EsmTokenizer.from_pretrained(esm_version, cache_dir="../../../.cache")
         self.esm = EsmModel.from_pretrained(esm_version, cache_dir="../../../.cache")
         self.blstm = blstm_model
@@ -53,14 +53,14 @@ class LightningEsmBlstm(L.LightningModule):
             # Load weights non-strictly
             missing, unexpected = self.load_state_dict(new_state_dict, strict=False)
 
-            # Define keys to ignore in missing list, these are from ESM_FCN and won't exist in the ESM_MLM
+            # Define keys to ignore in missing list, these are from ESM_BLSTM and won't exist in the ESM_MLM
             ignored_missing = {
                 "esm.pooler.dense.weight", "esm.pooler.dense.bias",
                 "blstm.lstm.weight_ih_l0", "blstm.lstm.weight_hh_l0", "blstm.lstm.bias_ih_l0", "blstm.lstm.bias_hh_l0",
                 "blstm.lstm.weight_ih_l0_reverse", "blstm.lstm.weight_hh_l0_reverse", "blstm.lstm.bias_ih_l0_reverse", "blstm.lstm.bias_hh_l0_reverse",
-                "blstm.fcn.0.weight", "blstm.fcn.0.bias", "blstm.fcn.2.weight", "blstm.fcn.2.bias",
-                "blstm.fcn.4.weight", "blstm.fcn.4.bias", "blstm.fcn.6.weight", "blstm.fcn.6.bias",
-                "blstm.fcn.8.weight", "blstm.fcn.8.bias", "blstm.out.weight", "blstm.out.bias"
+                "blstm.fcn.0.weight", "blstm.fcn.0.bias", "blstm.fcn.2.weight", "blstm.fcn.2.bias", "blstm.fcn.4.weight", 
+                "blstm.fcn.4.bias", "blstm.fcn.6.weight", "blstm.fcn.6.bias", "blstm.fcn.8.weight", "blstm.fcn.8.bias", 
+                "blstm.out.weight", "blstm.out.bias"
             }
 
             # Filter out ignored missing keys

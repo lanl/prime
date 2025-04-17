@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-PyTorch Lightning ESM-GCN model runner.
+PyTorch Lightning ESM-BLSTM BE model runner.
 """
 import argparse
 import os
@@ -16,21 +16,19 @@ from lightning.pytorch.strategies import DDPStrategy
 
 from transformers import EsmTokenizer, EsmModel
 
-from torch_geometric.data import Data, Batch
+from pnlp.ESM_TL.dms_models import BLSTM_BE
+from pnlp.ESM_TL.dms_data_module import DmsBeDataModule  
+from pnlp.ESM_TL.dms_plotter import LossBeFigureCallback
 
-from pnlp.ESM_TL.dms_models import GraphSAGE
-from pnlp.ESM_TL.dms_data_module import DmsDataModule  
-from pnlp.ESM_TL.dms_plotter import LossFigureCallback
-
-class LightningEsmGcn(L.LightningModule):
+class LightningEsmBlstm(L.LightningModule):
     def __init__(self, 
-                 binding_or_expression:str, from_checkpoint:str, # Only set for hparams save
-                 lr: float, max_len: int, gcn_model: GraphSAGE, esm_version="facebook/esm2_t6_8M_UR50D", freeze_esm_weights=True, from_esm_mlm=None):
+                 from_checkpoint:str, # Only set for hparams save
+                 lr: float, max_len: int, blstm_model: BLSTM_BE, esm_version="facebook/esm2_t6_8M_UR50D", freeze_esm_weights=True, from_esm_mlm=None):
         super().__init__()
-        self.save_hyperparameters(ignore=["gcn_model"])  # Save all init parameters to self.hparams
+        self.save_hyperparameters(ignore=["blstm_model"])  # Save all init parameters to self.hparams
         self.tokenizer = EsmTokenizer.from_pretrained(esm_version, cache_dir="../../../.cache")
         self.esm = EsmModel.from_pretrained(esm_version, cache_dir="../../../.cache")
-        self.gcn = gcn_model
+        self.blstm = blstm_model
         self.loss_fn = nn.MSELoss(reduction="sum")
         self.lr = lr
         self.max_len = max_len
@@ -54,15 +52,15 @@ class LightningEsmGcn(L.LightningModule):
 
             # Load weights non-strictly
             missing, unexpected = self.load_state_dict(new_state_dict, strict=False)
-            print(missing)
 
-            # Define keys to ignore in missing list, these are from ESM_GCN and won't exist in the ESM_MLM
+            # Define keys to ignore in missing list, these are from ESM_BLSTM BE and won't exist in the ESM_MLM
             ignored_missing = {
                 "esm.pooler.dense.weight", "esm.pooler.dense.bias",
-                "gcn.conv1.lin_l.weight", "gcn.conv1.lin_l.bias", "gcn.conv1.lin_r.weight", "gcn.conv2.lin_l.weight", "gcn.conv2.lin_l.bias", "gcn.conv2.lin_r.weight",
-                "gcn.fcn.0.weight", "gcn.fcn.0.bias", "gcn.fcn.2.weight", "gcn.fcn.2.bias", "gcn.fcn.4.weight", 
-                "gcn.fcn.4.bias", "gcn.fcn.6.weight", "gcn.fcn.6.bias", "gcn.fcn.8.weight", "gcn.fcn.8.bias", 
-                "gcn.out.weight", "gcn.out.bias"
+                "blstm.lstm.weight_ih_l0", "blstm.lstm.weight_hh_l0", "blstm.lstm.bias_ih_l0", "blstm.lstm.bias_hh_l0",
+                "blstm.lstm.weight_ih_l0_reverse", "blstm.lstm.weight_hh_l0_reverse", "blstm.lstm.bias_ih_l0_reverse", "blstm.lstm.bias_hh_l0_reverse",
+                "blstm.fcn.0.weight", "blstm.fcn.0.bias", "blstm.fcn.2.weight", "blstm.fcn.2.bias", "blstm.fcn.4.weight", 
+                "blstm.fcn.4.bias", "blstm.fcn.6.weight", "blstm.fcn.6.bias", "blstm.fcn.8.weight", "blstm.fcn.8.bias", 
+                "blstm.binding_out.weight", "blstm.binding_out.bias", "blstm.expression_out.weight", "blstm.expression_out.bias"
             }
 
             # Filter out ignored missing keys
@@ -81,83 +79,94 @@ class LightningEsmGcn(L.LightningModule):
                 param.requires_grad = False
             if trainer.global_rank == 0: print("ESM weights are frozen!")
 
-    def forward(self, input_ids, attention_mask, targets):
+    def forward(self, input_ids, attention_mask):
         esm_last_hidden_state = self.esm(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state # shape: [batch_size, sequence_length, embedding_dim]
         esm_aa_embedding = esm_last_hidden_state[:, 1:-1, :] # Amino Acid-level representations, [batch_size, sequence_length-2, embedding_dim], excludes 1st and last tokens
-        
-        # Graph Construction
-        graphs = []
-        for embedding, target in zip(esm_aa_embedding, targets):
-            edges = [(i, i+1) for i in range(embedding.size(0) - 1)]
-            edge_index = torch.tensor(edges, dtype=torch.int64).t().contiguous()
-
-            graphs.append(Data(
-                x=embedding, 
-                edge_index=edge_index,
-                y=torch.tensor([target], dtype=torch.float32)
-            ))
-
-        batch_graph = Batch.from_data_list(graphs).to(self.device)
-        output = self.gcn(batch_graph.x, batch_graph.edge_index, batch_graph.batch)
-
-        return output, batch_graph.y
+        binding_preds, expression_preds = self.fcn(esm_aa_embedding) # [batch_size], [batch_size]
+        return binding_preds, expression_preds
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
     
     def step(self, batch):
-        _, seqs, targets = batch
-        targets = targets.to(self.device).float()
-        batch_size = targets.size(0)
+        _, seqs, binding_targets, expression_targets = batch
+        binding_targets = binding_targets.to(self.device).float()
+        expression_targets = expression_targets.to(self.device).float()
+        batch_size = binding_targets.size(0)
 
         tokenized = self.tokenizer(seqs, return_tensors="pt", padding=True, truncation=True, max_length=self.max_len)
         tokenized = {k: v.to(self.device) for k, v in tokenized.items()}
 
-        preds, y = self(input_ids=tokenized["input_ids"], attention_mask=tokenized["attention_mask"], targets=targets)
-        loss = self.loss_fn(preds, y)  # Sum of squared errors (sse)
+        binding_preds, expression_preds = self(input_ids=tokenized["input_ids"], attention_mask=tokenized["attention_mask"])
+        binding_loss = self.loss_fn(binding_preds, binding_targets)  # Sum of squared errors (sse)
+        expression_loss = self.loss_fn(expression_preds, expression_targets)  # Sum of squared errors (sse)
+        be_loss = binding_loss + expression_loss
 
-        return loss, batch_size
+        return be_loss, binding_loss, expression_loss, batch_size
 
     def training_step(self, batch, batch_idx):
-        loss, batch_size = self.step(batch)
+        be_loss, binding_loss, expression_loss, batch_size = self.step(batch)
         
         # Accumulate (reduce_fx="sum") losses and total items in batch
-        self.log("train_sum_se", loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
+        self.log("train_binding_sum_se", binding_loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
+        self.log("train_expression_sum_se", expression_loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
+        self.log("train_be_sum_se", be_loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
         self.log("train_total_items", batch_size, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
-        return loss
-
+        return be_loss 
+    
     def on_train_epoch_end(self):
-        sum_se = self.trainer.callback_metrics.get("train_sum_se")
+        binding_sum_se = self.trainer.callback_metrics.get("train_binding_sum_se")
+        expression_sum_se = self.trainer.callback_metrics.get("train_expression_sum_se")
+        be_sum_se = self.trainer.callback_metrics.get("train_be_sum_se")
         total_items = self.trainer.callback_metrics.get("train_total_items")
         
-        if sum_se is not None and total_items and total_items > 0:
-            train_mse = sum_se / total_items
-            train_rmse = torch.sqrt(train_mse)
-            self.log("train_mse", train_mse, prog_bar=True) # Already synced in step
-            self.log("train_rmse", train_rmse, prog_bar=True) # Already synced in step
+        if all(i is not None for i in [binding_sum_se, expression_sum_se, be_sum_se]) and total_items and total_items > 0:
+            train_binding_mse = binding_sum_se / total_items
+            train_binding_rmse = torch.sqrt(train_binding_mse)
+            train_expression_mse = expression_sum_se / total_items
+            train_expression_rmse = torch.sqrt(train_expression_mse)
+            train_be_mse = be_sum_se / total_items
+            train_be_rmse = torch.sqrt(train_be_mse)
+            self.log("train_binding_mse", train_binding_mse, prog_bar=True) # Already synced in step
+            self.log("train_binding_rmse", train_binding_rmse, prog_bar=True) # Already synced in step
+            self.log("train_expression_mse", train_expression_mse, prog_bar=True) # Already synced in step
+            self.log("train_expression_rmse", train_expression_rmse, prog_bar=True) # Already synced in step
+            self.log("train_be_mse", train_be_mse, prog_bar=True) # Already synced in step
+            self.log("train_be_rmse", train_be_rmse, prog_bar=True) # Already synced in step
 
     def validation_step(self, batch, batch_idx):
-        loss, batch_size = self.step(batch)
+        be_loss, binding_loss, expression_loss, batch_size = self.step(batch)
         
-        # Accumulate (reduce_fx="sum") losses and total items in batches
-        self.log("val_sum_se", loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
+        # Accumulate (reduce_fx="sum") losses and total items in batch
+        self.log("val_binding_sum_se", binding_loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
+        self.log("val_expression_sum_se", expression_loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
+        self.log("val_be_sum_se", be_loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
         self.log("val_total_items", batch_size, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
-        return loss
+        return be_loss 
 
     def on_validation_epoch_end(self):
-        sum_se = self.trainer.callback_metrics.get("val_sum_se")
+        binding_sum_se = self.trainer.callback_metrics.get("val_binding_sum_se")
+        expression_sum_se = self.trainer.callback_metrics.get("val_expression_sum_se")
+        be_sum_se = self.trainer.callback_metrics.get("val_be_sum_se")
         total_items = self.trainer.callback_metrics.get("val_total_items")
         
-        if sum_se is not None and total_items and total_items > 0:
-            val_mse = sum_se / total_items
-            val_rmse = torch.sqrt(val_mse)
-            self.log("val_mse", val_mse, prog_bar=True) # Already synced in step
-            self.log("val_rmse", val_rmse, prog_bar=True) # Already synced in step
+        if all(i is not None for i in [binding_sum_se, expression_sum_se, be_sum_se]) and total_items and total_items > 0:
+            val_binding_mse = binding_sum_se / total_items
+            val_binding_rmse = torch.sqrt(val_binding_mse)
+            val_expression_mse = expression_sum_se / total_items
+            val_expression_rmse = torch.sqrt(val_expression_mse)
+            val_be_mse = be_sum_se / total_items
+            val_be_rmse = torch.sqrt(val_be_mse)
+            self.log("val_binding_mse", val_binding_mse, prog_bar=True) # Already synced in step
+            self.log("val_binding_rmse", val_binding_rmse, prog_bar=True) # Already synced in step
+            self.log("val_expression_mse", val_expression_mse, prog_bar=True) # Already synced in step
+            self.log("val_expression_rmse", val_expression_rmse, prog_bar=True) # Already synced in step
+            self.log("val_be_mse", val_be_mse, prog_bar=True) # Already synced in step
+            self.log("val_be_rmse", val_be_rmse, prog_bar=True) # Already synced in step
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description="Run ESM-GCN model with Lightning")
-    parser.add_argument("--binding_or_expression", type=str, default="binding", help="Set 'binding' or 'expression' as target.")
+    parser = argparse.ArgumentParser(description="Run ESM-BLSTM BE model with Lightning")
     parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
     parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs")
     parser.add_argument("--from_checkpoint", type=str, default=None, help="Path to existing checkpoint to resume training from.")
@@ -171,12 +180,12 @@ if __name__ == "__main__":
 
     # Logger 
     slurm_job_id = os.environ.get("SLURM_JOB_ID")
-    logger = CSVLogger(save_dir="logs", name=f"esm_gcn", version=f"version_{slurm_job_id}" if slurm_job_id is not None else None)
+    logger = CSVLogger(save_dir="logs", name=f"esm_blstm_be", version=f"version_{slurm_job_id}" if slurm_job_id is not None else None)
 
     # Save ONLY the best model in logs/version_x/ckpt
     best_model_checkpoint = ModelCheckpoint(
-        filename="best_model-epoch={epoch:02d}.val_rmse={val_rmse:.4f}",
-        monitor="val_rmse",
+        filename="best_model-epoch={epoch:02d}.val_be_rmse={val_be_rmse:.4f}.val_binding_rmse={val_binding_rmse:.4f}.val_expression_rmse={val_expression_rmse:.4f}",
+        monitor="val_be_rmse",
         mode="min",
         save_top_k=1,
         save_last=False,
@@ -216,7 +225,7 @@ if __name__ == "__main__":
             best_model_checkpoint, 
             all_epochs_checkpoint, 
             TQDMProgressBar(refresh_rate=25),   # Update every 25 batches
-            LossFigureCallback(),               # For loss plots
+            LossBeFigureCallback(),               # For loss plots
         ]
     )
 
@@ -229,15 +238,17 @@ if __name__ == "__main__":
     # Data directory (no results_dir needed since versioning handles it automatically)
     data_dir= os.path.join(os.path.dirname(__file__), f"../../../data/dms")
 
-    # GraphSAGE input, size should match used ESM model embedding_dim size
+    # BLSTM input, size should match used ESM model embedding_dim size
     size = 320
-    input_channels = size   
-    hidden_channels = size
+    lstm_input_size = size
+    lstm_hidden_size = size
+    lstm_num_layers = 1        
+    lstm_bidrectional = True   
+    fcn_hidden_size = size
     fcn_num_layers = 5
-    gcn = GraphSAGE(input_channels, hidden_channels, fcn_num_layers)
+    blstm = BLSTM_BE(lstm_input_size, lstm_hidden_size, lstm_num_layers, lstm_bidrectional, fcn_hidden_size, fcn_num_layers)
 
     # Initialize DataModule and model
-    binding_or_expression = args.binding_or_expression
     from_checkpoint = args.from_checkpoint
     from_esm_mlm = args.from_esm_mlm
 
@@ -245,21 +256,19 @@ if __name__ == "__main__":
         if trainer.global_rank == 0: print(f"NOTICE: 'from_checkpoint' is set, so 'from_esm_mlm' ({from_esm_mlm}) will be ignored.")
         from_esm_mlm = None
 
-    dm = DmsDataModule(
+    dm = DmsBeDataModule(
         data_dir=data_dir,
-        binding_or_expression=binding_or_expression,  
-        torch_geometric_tag=True, 
+        torch_geometric_tag=False, 
         batch_size=64,
         num_workers=4, 
         seed=seed
     )
 
-    model = LightningEsmGcn(
-        binding_or_expression=binding_or_expression,                  
+    model = LightningEsmBlstmBe(
         from_checkpoint=from_checkpoint,    
         lr=args.lr,
         max_len=280,
-        gcn_model=gcn,
+        blstm_model=blstm,
         esm_version="facebook/esm2_t6_8M_UR50D",
         freeze_esm_weights=args.freeze_esm,
         from_esm_mlm=from_esm_mlm

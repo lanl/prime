@@ -56,9 +56,9 @@ class LightningEsmFcn(L.LightningModule):
             # Define keys to ignore in missing list, these are from ESM_FCN and won't exist in the ESM_MLM
             ignored_missing = {
                 "esm.pooler.dense.weight", "esm.pooler.dense.bias",
-                "fcn.fcn.0.weight", "fcn.fcn.0.bias", "fcn.fcn.2.weight", "fcn.fcn.2.bias",
-                "fcn.fcn.4.weight", "fcn.fcn.4.bias", "fcn.fcn.6.weight", "fcn.fcn.6.bias",
-                "fcn.fcn.8.weight", "fcn.fcn.8.bias", "fcn.out.weight", "fcn.out.bias"
+                "fcn.fcn.0.weight", "fcn.fcn.0.bias", "fcn.fcn.2.weight", "fcn.fcn.2.bias", "fcn.fcn.4.weight", 
+                "fcn.fcn.4.bias", "fcn.fcn.6.weight", "fcn.fcn.6.bias", "fcn.fcn.8.weight", "fcn.fcn.8.bias", 
+                "fcn.out.weight", "fcn.out.bias"
             }
 
             # Filter out ignored missing keys
