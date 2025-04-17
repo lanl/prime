@@ -12,16 +12,16 @@ from torch_geometric.loader import DataLoader as GeometricDataLoader
 import lightning as L
 
 class DmsDataset(Dataset):
-    def __init__(self, csv_file:str, bORe_tag:str):
+    def __init__(self, csv_file:str, binding_or_expression:str):
         """
         Load from csv file into pandas:
         - sequence label ('labels'), 
         - 'sequence',
-        - binding or expression target ('bORe_tag')
+        - binding or expression target ('binding_or_expression')
         """
         try:
             self.full_df = pd.read_csv(csv_file, sep=',', header=0)
-            self.target = 'ACE2-binding_affinity' if 'binding' in bORe_tag else 'RBD_expression'
+            self.target = 'ACE2-binding_affinity' if 'binding' in binding_or_expression else 'RBD_expression'
         except (FileNotFoundError, pd.errors.ParserError, Exception) as e:
             print(f"Error reading in .csv file: {csv_file}\n{e}", file=sys.stderr)
             sys.exit(1)
@@ -34,10 +34,10 @@ class DmsDataset(Dataset):
         return self.full_df['label'][idx], self.full_df['sequence'][idx], self.full_df[self.target][idx]
 
 class DmsDataModule(L.LightningDataModule):
-    def __init__(self, data_dir: str, bORe_tag:str, torch_geometric_tag: bool, batch_size: int, num_workers: int, seed: int):
+    def __init__(self, data_dir: str, binding_or_expression:str, torch_geometric_tag: bool, batch_size: int, num_workers: int, seed: int):
         super().__init__()
         self.data_dir = data_dir
-        self.bORe_tag = bORe_tag
+        self.binding_or_expression = binding_or_expression
         self.torch_geometric_tag = torch_geometric_tag
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -49,8 +49,8 @@ class DmsDataModule(L.LightningDataModule):
     def setup(self, stage):
         # Called on every GPU
         if stage == 'fit':
-            self.train_dataset = DmsDataset(os.path.join(self.data_dir, "mutation_combined_DMS_OLD_train.csv"), self.bORe_tag)
-            self.val_dataset = DmsDataset(os.path.join(self.data_dir, "mutation_combined_DMS_OLD_test.csv"), self.bORe_tag)
+            self.train_dataset = DmsDataset(os.path.join(self.data_dir, "mutation_combined_DMS_OLD_train.csv"), self.binding_or_expression)
+            self.val_dataset = DmsDataset(os.path.join(self.data_dir, "mutation_combined_DMS_OLD_test.csv"), self.binding_or_expression)
 
     def train_dataloader(self):
         loader = GeometricDataLoader if self.torch_geometric_tag else TorchDataLoader

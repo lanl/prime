@@ -2,6 +2,7 @@
 """
 PyTorch Lightning ESM-GCN model runner.
 """
+import argparse
 import os
 import time
 import datetime
@@ -23,7 +24,7 @@ from pnlp.ESM_TL.dms_plotter import LossFigureCallback
 
 class LightningEsmGcn(L.LightningModule):
     def __init__(self, 
-                 bORe_tag:str, from_checkpoint:str, # Only set for hparams save
+                 binding_or_expression:str, from_checkpoint:str, # Only set for hparams save
                  lr: float, max_len: int, gcn_model: GraphSAGE, esm_version="facebook/esm2_t6_8M_UR50D", freeze_esm_weights=True, from_esm_mlm=None):
         super().__init__()
         self.save_hyperparameters(ignore=["fcn_model"])  # Save all init parameters to self.hparams
@@ -154,6 +155,15 @@ class LightningEsmGcn(L.LightningModule):
 
 if __name__ == "__main__":
 
+    parser = argparse.ArgumentParser(description="Run ESM-GCN model with Lightning")
+    parser.add_argument("--binding_or_expression", type=str, default="binding", help="Set 'binding' or 'expression' as target.")
+    parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
+    parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs")
+    parser.add_argument("--from_checkpoint", type=str, default=None, help="Path to existing checkpoint to resume training from.")
+    parser.add_argument("--from_esm_mlm", type=str, default=None, help="Path to pretrained ESM_MLM checkpoint.")
+    parser.add_argument("--freeze_esm", action="store_true", help="Whether to freeze ESM model weights. Abscence of flag sets to False.")
+    args = parser.parse_args()
+
     # Random seed
     seed = 0
     L.seed_everything(seed)  # Set seed for reproducibility
@@ -193,7 +203,7 @@ if __name__ == "__main__":
 
     # Trainer setup 
     trainer= L.Trainer(
-        max_epochs=1000,
+        max_epochs=args.num_epochs,
         limit_train_batches=1.0,    # 1.0 is 100% of batches
         limit_val_batches=1.0,      # 1.0 is 100% of batches
         strategy=DDPStrategy(find_unused_parameters=True), 
@@ -226,9 +236,9 @@ if __name__ == "__main__":
     gcn = GraphSAGE(input_channels, hidden_channels, fcn_num_layers)
 
     # Initialize DataModule and model
-    bORe_tag = "binding"    # Binding or Expression
-    from_esm_mlm = None  # None or path to ESM_MLM checkpoint, if fine-tuning
-    from_checkpoint = None
+    binding_or_expression = args.binding_or_expression
+    from_checkpoint = args.from_checkpoint
+    from_esm_mlm = args.from_esm_mlm
 
     if from_checkpoint is not None and from_esm_mlm is not None:
         if trainer.global_rank == 0: print(f"NOTICE: 'from_checkpoint' is set, so 'from_esm_mlm' ({from_esm_mlm}) will be ignored.")
@@ -236,7 +246,7 @@ if __name__ == "__main__":
 
     dm = DmsDataModule(
         data_dir=data_dir,
-        bORe_tag=bORe_tag,  
+        binding_or_expression=binding_or_expression,  
         torch_geometric_tag=True, 
         batch_size=64,
         num_workers=4, 
@@ -244,13 +254,13 @@ if __name__ == "__main__":
     )
 
     model = LightningEsmGcn(
-        bORe_tag=bORe_tag,                  
+        binding_or_expression=binding_or_expression,                  
         from_checkpoint=from_checkpoint,    
-        lr=1e-5,
+        lr=args.lr,
         max_len=280,
         gcn_model=gcn,
         esm_version="facebook/esm2_t6_8M_UR50D",
-        freeze_esm_weights=False,
+        freeze_esm_weights=args.freeze_esm,
         from_esm_mlm=from_esm_mlm
     )
 

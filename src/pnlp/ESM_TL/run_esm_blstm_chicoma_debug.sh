@@ -15,6 +15,9 @@ module load cudatoolkit
 source ../../../../venvs/spike/bin/activate
 
 # Run
-srun python lightning-esm_blstm.py
-
+srun python lightning-esm_blstm.py \
+--num_epochs 200 \
+--lr 1e-5 \
+--from_esm_mlm ../ESM_MLM/logs/100/version_21770023/ckpt/best_model-epoch=93.val_loss=0.0022.val_accuracy=99.6541.ckpt \
+--freeze_esm
 

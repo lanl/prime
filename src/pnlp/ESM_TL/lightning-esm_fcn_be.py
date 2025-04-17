@@ -168,8 +168,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run ESM-FCN BE model with Lightning")
     parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
     parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs")
-    parser.add_argument("--from_checkpoint", type=str, default=None, help="Path to existing checkpoint to resume training from")
-    parser.add_argument("--from_esm_mlm", type=str, default=None, help="Path to pretrained ESM_MLM checkpoint")
+    parser.add_argument("--from_checkpoint", type=str, default=None, help="Path to existing checkpoint to resume training from.")
+    parser.add_argument("--from_esm_mlm", type=str, default=None, help="Path to pretrained ESM_MLM checkpoint.")
     parser.add_argument("--freeze_esm", action="store_true", help="Whether to freeze ESM model weights. Abscence of flag sets to False.")
     args = parser.parse_args()
 
