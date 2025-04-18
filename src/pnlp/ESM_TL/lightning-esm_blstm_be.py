@@ -20,7 +20,7 @@ from pnlp.ESM_TL.dms_models import BLSTM_BE
 from pnlp.ESM_TL.dms_data_module import DmsBeDataModule  
 from pnlp.ESM_TL.dms_plotter import LossBeFigureCallback
 
-class LightningEsmBlstm(L.LightningModule):
+class LightningEsmBlstmBe(L.LightningModule):
     def __init__(self, 
                  from_checkpoint:str, # Only set for hparams save
                  lr: float, max_len: int, blstm_model: BLSTM_BE, esm_version="facebook/esm2_t6_8M_UR50D", freeze_esm_weights=True, from_esm_mlm=None):
@@ -82,7 +82,7 @@ class LightningEsmBlstm(L.LightningModule):
     def forward(self, input_ids, attention_mask):
         esm_last_hidden_state = self.esm(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state # shape: [batch_size, sequence_length, embedding_dim]
         esm_aa_embedding = esm_last_hidden_state[:, 1:-1, :] # Amino Acid-level representations, [batch_size, sequence_length-2, embedding_dim], excludes 1st and last tokens
-        binding_preds, expression_preds = self.fcn(esm_aa_embedding) # [batch_size], [batch_size]
+        binding_preds, expression_preds = self.blstm(esm_aa_embedding) # [batch_size], [batch_size]
         return binding_preds, expression_preds
     
     def configure_optimizers(self):
@@ -225,7 +225,7 @@ if __name__ == "__main__":
             best_model_checkpoint, 
             all_epochs_checkpoint, 
             TQDMProgressBar(refresh_rate=25),   # Update every 25 batches
-            LossBeFigureCallback(),               # For loss plots
+            LossBeFigureCallback(),             # For loss plots
         ]
     )
 

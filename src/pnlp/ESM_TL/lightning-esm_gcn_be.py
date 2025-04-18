@@ -22,7 +22,7 @@ from pnlp.ESM_TL.dms_models import GraphSAGE_BE
 from pnlp.ESM_TL.dms_data_module import DmsBeDataModule  
 from pnlp.ESM_TL.dms_plotter import LossBeFigureCallback
 
-class LightningEsmGcn(L.LightningModule):
+class LightningEsmGcnBe(L.LightningModule):
     def __init__(self, 
                  from_checkpoint:str, # Only set for hparams save
                  lr: float, max_len: int, gcn_model: GraphSAGE_BE, esm_version="facebook/esm2_t6_8M_UR50D", freeze_esm_weights=True, from_esm_mlm=None):
@@ -54,7 +54,6 @@ class LightningEsmGcn(L.LightningModule):
 
             # Load weights non-strictly
             missing, unexpected = self.load_state_dict(new_state_dict, strict=False)
-            print(missing)
 
             # Define keys to ignore in missing list, these are from ESM_GCN BE and won't exist in the ESM_MLM
             ignored_missing = {
@@ -184,7 +183,6 @@ class LightningEsmGcn(L.LightningModule):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Run ESM-GCN BE model with Lightning")
-    parser.add_argument("--binding_or_expression", type=str, default="binding", help="Set 'binding' or 'expression' as target.")
     parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
     parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs")
     parser.add_argument("--from_checkpoint", type=str, default=None, help="Path to existing checkpoint to resume training from.")
@@ -202,8 +200,8 @@ if __name__ == "__main__":
 
     # Save ONLY the best model in logs/version_x/ckpt
     best_model_checkpoint = ModelCheckpoint(
-        filename="best_model-epoch={epoch:02d}.val_rmse={val_rmse:.4f}",
-        monitor="val_rmse",
+        filename="best_model-epoch={epoch:02d}.val_be_rmse={val_be_rmse:.4f}.val_binding_rmse={val_binding_rmse:.4f}.val_expression_rmse={val_expression_rmse:.4f}",
+        monitor="val_be_rmse",
         mode="min",
         save_top_k=1,
         save_last=False,
@@ -243,7 +241,7 @@ if __name__ == "__main__":
             best_model_checkpoint, 
             all_epochs_checkpoint, 
             TQDMProgressBar(refresh_rate=25),   # Update every 25 batches
-            LossBeFigureCallback(),               # For loss plots
+            LossBeFigureCallback(),             # For loss plots
         ]
     )
 
@@ -264,7 +262,6 @@ if __name__ == "__main__":
     gcn = GraphSAGE_BE(input_channels, hidden_channels, fcn_num_layers)
 
     # Initialize DataModule and model
-    binding_or_expression = args.binding_or_expression
     from_checkpoint = args.from_checkpoint
     from_esm_mlm = args.from_esm_mlm
 
@@ -274,15 +271,13 @@ if __name__ == "__main__":
 
     dm = DmsBeDataModule(
         data_dir=data_dir,
-        binding_or_expression=binding_or_expression,  
         torch_geometric_tag=True, 
         batch_size=64,
         num_workers=4, 
         seed=seed
     )
 
-    model = LightningEsmGcn(
-        binding_or_expression=binding_or_expression,                  
+    model = LightningEsmGcnBe(
         from_checkpoint=from_checkpoint,    
         lr=args.lr,
         max_len=280,

@@ -166,7 +166,7 @@ class BLSTM_BE(L.LightningModule):
     
 class GraphSAGE(L.LightningModule):
     def __init__(self, input_channels, hidden_channels, fcn_num_layers):
-        super(GraphSAGE, self).__init__()
+        super().__init__()
         self.conv1 = SAGEConv(input_channels, hidden_channels)
         self.conv2 = SAGEConv(hidden_channels, hidden_channels)
 
@@ -191,7 +191,7 @@ class GraphSAGE(L.LightningModule):
     
 class GraphSAGE_BE(L.LightningModule):
     def __init__(self, input_channels, hidden_channels, fcn_num_layers):
-        super(GraphSAGE, self).__init__()
+        super().__init__()
         self.conv1 = SAGEConv(input_channels, hidden_channels)
         self.conv2 = SAGEConv(hidden_channels, hidden_channels)
 

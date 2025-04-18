@@ -223,7 +223,7 @@ if __name__ == "__main__":
             best_model_checkpoint, 
             all_epochs_checkpoint, 
             TQDMProgressBar(refresh_rate=25),   # Update every 25 batches
-            LossBeFigureCallback(),               # For loss plots
+            LossBeFigureCallback(),             # For loss plots
         ]
     )
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=DEBUG
-#SBATCH --output=logs/esm_blstm/version_%j/slurm_out/%j.out	     # Redirect standard out to slurm_outs
-#SBATCH --error=logs/esm_blstm/version_%j/slurm_out/%j.err	     # Redirect standard err to slurm_outs
+#SBATCH --output=logs/esm_blstm_be/version_%j/slurm_out/%j.out	 # Redirect standard out to slurm_outs
+#SBATCH --error=logs/esm_blstm_be/version_%j/slurm_out/%j.err	     # Redirect standard err to slurm_outs
 #SBATCH --partition gpu                                          # GPU partition
 #SBATCH --reservation=gpu_debug                                  # Debug
 #SBATCH --time=2:00:00                                           # 2 hour max limit
@@ -15,9 +15,8 @@ module load cudatoolkit
 source ../../../../venvs/spike/bin/activate
 
 # Run
-srun python lightning-esm_blstm.py \
---num_epochs 200 \
+srun python lightning-esm_blstm_be.py \
+--num_epochs 20 \
 --lr 1e-5 \
 --from_esm_mlm ../ESM_MLM/logs/100/version_21770023/ckpt/best_model-epoch=93.val_loss=0.0022.val_accuracy=99.6541.ckpt \
 --freeze_esm
-

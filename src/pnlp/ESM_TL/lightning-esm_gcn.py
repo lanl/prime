@@ -54,8 +54,7 @@ class LightningEsmGcn(L.LightningModule):
 
             # Load weights non-strictly
             missing, unexpected = self.load_state_dict(new_state_dict, strict=False)
-            print(missing)
-
+            
             # Define keys to ignore in missing list, these are from ESM_GCN and won't exist in the ESM_MLM
             ignored_missing = {
                 "esm.pooler.dense.weight", "esm.pooler.dense.bias",
