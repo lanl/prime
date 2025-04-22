@@ -19,4 +19,4 @@ source ../../../../venvs/spike/bin/activate
 srun python lightning-esm_blstm_be.py \
 --num_epochs 1000 \
 --lr 1e-4 \
---from_esm_mlm ../ESM_MLM/logs/100/version_21770023/ckpt/best_model-epoch=93.val_loss=0.0022.val_accuracy=99.6541.ckpt 
+--from_esm_mlm ../ESM_MLM/logs/version_21768307/ckpt/best_model-epoch=73.val_loss=0.0022.val_accuracy=99.6612.ckpt
