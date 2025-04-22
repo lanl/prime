@@ -16,7 +16,7 @@ module load cudatoolkit
 source ../../../../venvs/spike/bin/activate
 
 # Run
-srun python ../lightning-esm_fcn_be.py \
+srun python lightning-esm_fcn_be.py \
 --num_epochs 1000 \
 --lr 1e-5 \
 --freeze_esm
