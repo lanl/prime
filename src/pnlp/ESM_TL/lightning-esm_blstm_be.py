@@ -196,7 +196,7 @@ if __name__ == "__main__":
     # Save EVERY epoch in logs/version_x/ckpt/all_epochs
     all_epochs_checkpoint = ModelCheckpoint(
         filename="{epoch:02d}",
-        every_n_epochs=100,
+        every_n_epochs=1,
         save_top_k=-1,
         save_last=True,
         dirpath=None,  # Let PyTorch Lightning manage the directory
