@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=EB-ESM_GCN
+#SBATCH --job-name=FB-ESM_GCN
 #SBATCH --output=logs/esm_gcn/version_%j/slurm_out/%j.out           # Redirect standard out to slurm_outs
 #SBATCH --error=logs/esm_gcn/version_%j/slurm_out/%j.err	        # Redirect standard err to slurm_outs
 #SBATCH --partition=gpu                                             # GPU partition
