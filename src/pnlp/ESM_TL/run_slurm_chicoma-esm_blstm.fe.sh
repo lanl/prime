@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=EE-ESM_BLSTM
+#SBATCH --job-name=FE-ESM_BLSTM
 #SBATCH --output=logs/esm_blstm/version_%j/slurm_out/%j.out      # Redirect standard out to slurm_outs
 #SBATCH --error=logs/esm_blstm/version_%j/slurm_out/%j.err	    # Redirect standard err to slurm_outs
 #SBATCH --partition=gpu                                             # GPU partition

@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=AB-ESM_FCN
-#SBATCH --output=logs/esm_fcn/version_%j/slurm_out/%j.out      # Redirect standard out to slurm_outs
-#SBATCH --error=logs/esm_fcn/version_%j/slurm_out/%j.err	    # Redirect standard err to slurm_outs
+#SBATCH --job-name=AB-ESM_BLSTM
+#SBATCH --output=logs/esm_blstm/version_%j/slurm_out/%j.out      # Redirect standard out to slurm_outs
+#SBATCH --error=logs/esm_blstm/version_%j/slurm_out/%j.err	    # Redirect standard err to slurm_outs
 #SBATCH --partition=gpu                                             # GPU partition
 #SBATCH --account=w25_artimis_g                                     # Chicoma account
 #SBATCH --qos=standard                                              # Standard QOS
@@ -16,7 +16,7 @@ module load cudatoolkit
 source ../../../../venvs/spike/bin/activate
 
 # Run
-srun python lightning-esm_fcn.py \
+srun python lightning-esm_blstm.py \
 --binding_or_expression binding \
 --num_epochs 1000 \
 --lr 1e-4 \
