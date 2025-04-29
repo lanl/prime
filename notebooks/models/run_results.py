@@ -43,13 +43,13 @@ def main():
                                 print(f"{model_folder}-{version_folder.split('_')[1]}: \n\t(best be) epoch {int(epoch)}, rmse {rmse:.4f}; b_rmse {b_rmse:.4f}, e_rmse {e_rmse:.4f}")
 
                                 best_binding_rmse_row = merged_df.loc[merged_df["val_binding_rmse"].idxmin()]
-                                epoch = best_rmse_row["epoch"]
-                                b_rmse = best_rmse_row["val_binding_rmse"]
+                                epoch = best_binding_rmse_row["epoch"]
+                                b_rmse = best_binding_rmse_row["val_binding_rmse"]
                                 print(f"\t(best binding) epoch {int(epoch)}, b_rmse {b_rmse:.4f}")
 
                                 best_expression_rmse_row = merged_df.loc[merged_df["val_expression_rmse"].idxmin()]
-                                epoch = best_rmse_row["epoch"]
-                                e_rmse = best_rmse_row["val_expression_rmse"]
+                                epoch = best_expression_rmse_row["epoch"]
+                                e_rmse = best_expression_rmse_row["val_expression_rmse"]
                                 print(f"\t(best expression) epoch {int(epoch)}, e_rmse {e_rmse:.4f}")
 
                             else:
