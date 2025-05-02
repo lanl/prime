@@ -16,9 +16,15 @@ class LossFigureCallback(Callback):
         """
         log_dir = trainer.logger.log_dir
 
+        # Check if metrics file exists
+        metrics_path = os.path.join(log_dir, "metrics.csv")
+        if not os.path.exists(metrics_path):
+            print(f"Metrics file not found at {metrics_path}. Skipping plot generation.")
+            return
+
         # Extract data from metrics file
         df = pd.read_csv(
-            os.path.join(log_dir, "metrics.csv"), 
+            metrics_path, 
             sep=',', 
             header=0,
             usecols=['epoch', 'train_rmse', 'val_rmse']
@@ -62,9 +68,15 @@ class LossBeFigureCallback(Callback):
         """
         log_dir = trainer.logger.log_dir
 
+        # Check if metrics file exists
+        metrics_path = os.path.join(log_dir, "metrics.csv")
+        if not os.path.exists(metrics_path):
+            print(f"Metrics file not found at {metrics_path}. Skipping plot generation.")
+            return
+
         # Extract data from metrics file
         df = pd.read_csv(
-            os.path.join(log_dir, "metrics.csv"), 
+            metrics_path, 
             sep=',', 
             header=0,
             usecols=['epoch', 'train_binding_rmse', 'val_binding_rmse', 'train_expression_rmse', 'val_expression_rmse', 'train_be_rmse', 'val_be_rmse']

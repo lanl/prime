@@ -24,9 +24,15 @@ class AccuracyLossFigureCallback(Callback):
 
         log_dir = trainer.logger.log_dir
 
+        # Check if metrics file exists
+        metrics_path = os.path.join(log_dir, "metrics.csv")
+        if not os.path.exists(metrics_path):
+            print(f"Metrics file not found at {metrics_path}. Skipping plot generation.")
+            return
+
         # Extract data from metrics file
         df = pd.read_csv(
-            os.path.join(log_dir, "metrics.csv"), 
+            metrics_path, 
             sep=',', 
             header=0,
             usecols=['epoch', 'train_accuracy', 'train_loss', 'val_accuracy', 'val_loss']
@@ -154,13 +160,19 @@ class AAHeatmapFigureCallback(Callback):
         if trainer.global_rank != 0:
             return  
         
+        
         # Existing best/final epoch determination
         best_epoch = None
         for cb in trainer.callbacks:
             if isinstance(cb, ModelCheckpoint) and cb.monitor == "val_accuracy":
                 best_model_path = cb.best_model_path
-                if "epoch=" in best_model_path:
-                    best_epoch = int(best_model_path.split("epoch=")[1].split(".")[0])
+                if not os.path.exists(best_model_path):
+                    print(f"Best file not found at {best_model_path}. Skipping plot generation.")
+                    continue
+
+                else:
+                    if "epoch=" in best_model_path:
+                        best_epoch = int(best_model_path.split("epoch=")[1].split(".")[0])
         
         final_epoch = trainer.max_epochs-1
 
@@ -170,14 +182,15 @@ class AAHeatmapFigureCallback(Callback):
 
         def all_files_ready():
             for epoch in [best_epoch, final_epoch]:
-                for rank in range(trainer.world_size):
-                    csv_path = os.path.join(aa_preds_dir, f"aa_predictions_epoch{epoch}_rank{rank}.csv")
-                    try:
-                        if not os.path.exists(csv_path):
+                if epoch is not None:
+                    for rank in range(trainer.world_size):
+                        csv_path = os.path.join(aa_preds_dir, f"aa_predictions_epoch{epoch}_rank{rank}.csv")
+                        try:
+                            if not os.path.exists(csv_path):
+                                return False
+                            pd.read_csv(csv_path)  # Try reading to confirm it's valid
+                        except Exception:
                             return False
-                        pd.read_csv(csv_path)  # Try reading to confirm it's valid
-                    except Exception:
-                        return False
             return True
 
         # Wait until all files exist
@@ -196,5 +209,5 @@ class AAHeatmapFigureCallback(Callback):
         print("All files confirmed. Generating heatmaps...")
 
         # Generate heatmaps after verification
-        self.generate_heatmap(trainer, best_epoch, "Best")
+        if best_epoch is not None: self.generate_heatmap(trainer, best_epoch, "Best")
         self.generate_heatmap(trainer, final_epoch, "Final")
