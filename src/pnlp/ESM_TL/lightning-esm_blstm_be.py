@@ -182,8 +182,8 @@ if __name__ == "__main__":
     slurm_job_id = os.environ.get("SLURM_JOB_ID")
     logger = CSVLogger(save_dir="logs", name=f"esm_blstm_be", version=f"version_{slurm_job_id}" if slurm_job_id is not None else None)
 
-    # Save ONLY the best model in logs/version_x/ckpt
-    best_model_checkpoint = ModelCheckpoint(
+ # Save ONLY the best BE model in logs/version_x/ckpt
+    best_be_model_checkpoint = ModelCheckpoint(
         filename="best_model-epoch={epoch:02d}.val_be_rmse={val_be_rmse:.4f}.val_binding_rmse={val_binding_rmse:.4f}.val_expression_rmse={val_expression_rmse:.4f}",
         monitor="val_be_rmse",
         mode="min",
@@ -193,10 +193,32 @@ if __name__ == "__main__":
         auto_insert_metric_name=False,
     )
 
-    # Save EVERY epoch in logs/version_x/ckpt/all_epochs
+    # Save ONLY the best binding model in logs/version_x/ckpt
+    best_binding_model_checkpoint = ModelCheckpoint(
+        filename="best_model-epoch={epoch:02d}.val_binding_rmse={val_binding_rmse:.4f}",
+        monitor="val_binding_rmse",
+        mode="min",
+        save_top_k=1,
+        save_last=False,
+        dirpath=None,  # Let PyTorch Lightning manage the directory
+        auto_insert_metric_name=False,
+    )
+
+    # Save ONLY the best expression model in logs/version_x/ckpt
+    best_expression_model_checkpoint = ModelCheckpoint(
+        filename="best_model-epoch={epoch:02d}.val_expression_rmse={val_expression_rmse:.4f}",
+        monitor="val_expression_rmse",
+        mode="min",
+        save_top_k=1,
+        save_last=False,
+        dirpath=None,  # Let PyTorch Lightning manage the directory
+        auto_insert_metric_name=False,
+    )
+
+    # Save EVERY n epoch in logs/version_x/ckpt/all_epochs
     all_epochs_checkpoint = ModelCheckpoint(
         filename="{epoch:02d}",
-        every_n_epochs=1,
+        every_n_epochs=100,
         save_top_k=-1,
         save_last=True,
         dirpath=None,  # Let PyTorch Lightning manage the directory
@@ -222,7 +244,9 @@ if __name__ == "__main__":
         devices=ntasks_per_node,
         logger=logger,
         callbacks=[
-            best_model_checkpoint, 
+            best_be_model_checkpoint, 
+            best_binding_model_checkpoint,
+            best_expression_model_checkpoint,
             all_epochs_checkpoint, 
             TQDMProgressBar(refresh_rate=25),   # Update every 25 batches
             LossBeFigureCallback(),             # For loss plots
@@ -232,7 +256,9 @@ if __name__ == "__main__":
     # Manually set the checkpoint directory after Trainer initialization
     ckpt_dir = os.path.join(trainer.logger.log_dir, "ckpt")
     os.makedirs(ckpt_dir, exist_ok=True)  # Ensure directory exists
-    best_model_checkpoint.dirpath = ckpt_dir
+    best_be_model_checkpoint.dirpath = ckpt_dir
+    best_binding_model_checkpoint.dirpath = ckpt_dir
+    best_expression_model_checkpoint.dirpath = ckpt_dir
     all_epochs_checkpoint.dirpath = os.path.join(ckpt_dir, "all_epochs")
 
     # Data directory (no results_dir needed since versioning handles it automatically)
