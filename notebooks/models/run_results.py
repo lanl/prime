@@ -53,11 +53,13 @@ def main():
                                 print(f"\t(best expression) epoch {int(epoch)}, e_rmse {e_rmse:.4f}")
 
                             else:
-                                # Get best (min) rmse row
-                                best_rmse_row = merged_df.loc[merged_df["val_rmse"].idxmin()]
-                                epoch = best_rmse_row["epoch"]
-                                rmse = best_rmse_row["val_rmse"]
-                                print(f"{model_folder}-{version_folder.split('_')[1]}: \n\t(best) epoch {int(epoch)}, rmse {rmse:.4f}")
-                            
+                                continue
+                                # # Get best (min) rmse row
+                                # best_rmse_row = merged_df.loc[merged_df["val_rmse"].idxmin()]
+                                # epoch = best_rmse_row["epoch"]
+                                # rmse = best_rmse_row["val_rmse"]
+                                # print(f"{model_folder}-{version_folder.split('_')[1]}: \n\t(best) epoch {int(epoch)}, rmse {rmse:.4f}")
+        print("")                        
+
 if __name__ == '__main__':
     main()

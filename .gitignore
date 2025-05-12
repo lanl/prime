@@ -1,6 +1,7 @@
 **/logs
 **/screen_logs
 **/__pycache__
+**/done
 .cache
 spike
 *.ckpt
