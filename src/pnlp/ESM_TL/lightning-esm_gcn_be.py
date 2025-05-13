@@ -113,8 +113,8 @@ class LightningEsmGcnBe(L.LightningModule):
         tokenized = {k: v.to(self.device) for k, v in tokenized.items()}
 
         binding_preds, expression_preds, y = self(input_ids=tokenized["input_ids"], attention_mask=tokenized["attention_mask"], binding_targets=binding_targets, expression_targets=expression_targets)
-        binding_loss = self.loss_fn(binding_preds, binding_targets)  # Sum of squared errors (sse)
-        expression_loss = self.loss_fn(expression_preds, expression_targets)  # Sum of squared errors (sse)
+        binding_loss = self.loss_fn(binding_preds, y[:, 0])  # Sum of squared errors (sse)
+        expression_loss = self.loss_fn(expression_preds, y[:, 1])  # Sum of squared errors (sse)
         be_loss = binding_loss + expression_loss
 
         return be_loss, binding_loss, expression_loss, batch_size
