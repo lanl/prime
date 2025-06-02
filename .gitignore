@@ -9,3 +9,6 @@ UTF-8snow.sh
 *.parquet
 data/rbd/spikeprot0528.clean.uniq.noX.RBD.metadata.tsv
 data/rbd/spikeprot0528.clean.uniq.noX.RBD.metadata.variants.ADO.csv
+data/rbd/spikeprot0528.clean.uniq.noX.RBD.metadata.variants.ADO.fasta
+data/rbd/spikeprot0528.clean.uniq.noX.RBD.metadata.variants.O.csv
+data/rbd/spikeprot0528.clean.uniq.noX.RBD.metadata.variants.O.fasta
