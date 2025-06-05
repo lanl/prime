@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 import lightning as L
 
-from pnlp.embedding.nlp_embedding import NLPEmbedding
-from pnlp.model.transformer import TransformerBlock
+from pnlp.PNLP.embedding.nlp_embedding import NLPEmbedding
+from pnlp.PNLP.model.transformer import TransformerBlock
 
 class BERT(L.LightningModule):
     """ BERT model. """
@@ -52,16 +52,3 @@ class BERT(L.LightningModule):
         for transformer in self.transformer_blocks:
             x = transformer.forward(embedded_seqs, mask_tensor)
         return x
-
-    def training_step(self, batch, batch_idx):
-        x, y = batch
-        y_hat = self.forward(x)
-        loss = nn.CrossEntropyLoss(reduction='sum')(x_hat, y)
-        return loss
-        
-    def test_step(self, batch, batch_idx):
-        return self.training_step(batch, batch_idx)
-
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=1e-5, weight_decay=0.01)
-
