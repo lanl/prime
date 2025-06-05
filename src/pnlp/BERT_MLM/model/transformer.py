@@ -4,8 +4,7 @@ import torch
 import torch.nn as nn
 import lightning as L
 
-from pnlp.model.attention import MultiHeadedAttention
-
+from pnlp.BERT_MLM.model.attention import MultiHeadedAttention
 
 class LayerNorm(L.LightningModule):
     """

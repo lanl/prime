@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 import lightning as L
 
-from pnlp.PNLP.embedding.nlp_embedding import NLPEmbedding
-from pnlp.PNLP.model.transformer import TransformerBlock
+from pnlp.BERT_MLM.embedding.nlp_embedding import NLPEmbedding
+from pnlp.BERT_MLM.model.transformer import TransformerBlock
 
 class BERT(L.LightningModule):
     """ BERT model. """
