@@ -17,20 +17,21 @@ from lightning.pytorch.strategies import DDPStrategy
 from pnlp.ESM_MLM.rbd_data_module import RbdDataModule  
 from pnlp.ESM_MLM.rbd_plotter import AccuracyLossFigureCallback, AAHeatmapFigureCallback
 
-from pnlp.PNLP.model.language import BERT, ProteinLM
-from pnlp.PNLP.embedding.tokenizer import ProteinTokenizer, token_to_index
+from pnlp.BERT_MLM.model.language import BERT, ProteinLM
+from pnlp.BERT_MLM.embedding.tokenizer import ProteinTokenizer, token_to_index
 
 class LightningProteinBERT(L.LightningModule):
     def __init__(self, 
                  from_checkpoint:str,   # Only set for hparams save
                  lr: float, 
                  max_len: int, mask_prob: float, 
-                 embedding_dim: int, dropout: float, n_transformer_layers: int, n_attn_heads: int, vocab_size: int):
+                 embedding_dim: int, dropout: float, n_transformer_layers: int, n_attn_heads: int, vocab_size: int, esm_weights: str):
         super().__init__()
         self.save_hyperparameters()  # Save all init parameters to self.hparams
         self.tokenizer = ProteinTokenizer(max_len, mask_prob)
         self.token_to_aa = {i:aa for i, aa in enumerate('ACDEFGHIKLMNPQRSTUVWXY')} 
         self.bert = BERT(embedding_dim, dropout, max_len, mask_prob, n_transformer_layers, n_attn_heads)
+        self.bert.embedding.load_pretrained_embeddings(esm_weights, no_grad=False)
         self.model = ProteinLM(self.bert, vocab_size=vocab_size)
         self.loss_fn = nn.CrossEntropyLoss(reduction='sum')
         self.lr = lr
@@ -40,7 +41,7 @@ class LightningProteinBERT(L.LightningModule):
         return self.model(x)
     
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=0.01)
+        return torch.optim.Adam(self.parameters(), lr=self.lr)
     
     def step(self, batch):
         """
@@ -161,7 +162,7 @@ if __name__ == "__main__":
 
     # Trainer setup 
     trainer= L.Trainer(
-        max_epochs=10,
+        max_epochs=100,
         limit_train_batches=1.0,    # 1.0 is 100% of batches
         limit_val_batches=1.0,      # 1.0 is 100% of batches
         strategy=DDPStrategy(find_unused_parameters=True), 
@@ -206,7 +207,8 @@ if __name__ == "__main__":
         dropout=0.1,
         n_transformer_layers=12, 
         n_attn_heads=10,
-        vocab_size=len(token_to_index)
+        vocab_size=len(token_to_index),
+        esm_weights = os.path.join(data_dir, 'esm_weights-embedding_dim320.pth')
     )
 
     # Run model train/validation, load from_checkpoint if set

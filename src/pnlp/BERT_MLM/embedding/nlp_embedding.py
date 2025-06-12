@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import lightning as L
 
-from pnlp.PNLP.embedding.tokenizer import ProteinTokenizer, token_to_index, PADDING_IDX
+from pnlp.BERT_MLM.embedding.tokenizer import ProteinTokenizer, token_to_index, PADDING_IDX
 
 
 class PositionalEmbedding(L.LightningModule):
