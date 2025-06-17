@@ -155,7 +155,7 @@ class AAHeatmapFigureCallback(Callback):
     def on_fit_end(self, trainer: L.Trainer, lightning_module: L.LightningModule):
         """
         This method is called at the end of `trainer.fit`. Calls generate_heatmap 
-        for the best epoch, and the last epoch.
+        for the best, the first, and the last epoch.
         """
         # Skip non-zero ranks
         if trainer.global_rank != 0:
@@ -174,8 +174,8 @@ class AAHeatmapFigureCallback(Callback):
                     if "epoch=" in best_model_path:
                         print(f"Best file found at {best_model_path}. Plotting.")
                         best_epoch = int(best_model_path.split("epoch=")[1].split(".")[0])
-                        print(best_epoch)
         
+        first_epoch = 0
         final_epoch = trainer.max_epochs-1
 
         # Verify all needed files exist
@@ -183,7 +183,7 @@ class AAHeatmapFigureCallback(Callback):
         aa_preds_dir = os.path.join(log_dir, "aa_preds")
 
         def all_files_ready():
-            for epoch in [best_epoch, final_epoch]:
+            for epoch in [best_epoch, first_epoch, final_epoch]:
                 if epoch is not None:
                     for rank in range(trainer.world_size):
                         csv_path = os.path.join(aa_preds_dir, f"aa_predictions_epoch{epoch}_rank{rank}.csv")
@@ -212,4 +212,5 @@ class AAHeatmapFigureCallback(Callback):
 
         # Generate heatmaps after verification
         if best_epoch is not None: self.generate_heatmap(trainer, best_epoch, "Best")
+        self.generate_heatmap(trainer, first_epoch, "First")
         self.generate_heatmap(trainer, final_epoch, "Final")
