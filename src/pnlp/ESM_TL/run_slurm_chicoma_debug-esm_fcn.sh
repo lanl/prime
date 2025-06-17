@@ -12,7 +12,7 @@
 
 # Load environment
 module load cudatoolkit
-source ../../../../venvs/spike/bin/activate
+source /lustre/scratch4/turquoise/exempt/artimis/biosecurity/venvs/spike/bin/activate
 
 # Run
 srun python lightning-esm_mlm_fcn_be.py \
