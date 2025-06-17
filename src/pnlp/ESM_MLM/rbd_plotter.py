@@ -147,6 +147,7 @@ class AAHeatmapFigureCallback(Callback):
 
         # Save the figure
         save_path = os.path.join(aa_preds_dir , f"aa_predictions_heatmap-{tag.lower()}_epoch{epoch}")
+        print(f"{tag} figure located at {save_path}")
         plt.savefig(f"{save_path}.pdf", format='pdf', dpi=300, bbox_inches='tight')
         plt.savefig(f"{save_path}.png", format='png', dpi=300, bbox_inches='tight')
         plt.close()
@@ -160,11 +161,10 @@ class AAHeatmapFigureCallback(Callback):
         if trainer.global_rank != 0:
             return  
         
-        
         # Existing best/final epoch determination
         best_epoch = None
         for cb in trainer.callbacks:
-            if isinstance(cb, ModelCheckpoint) and cb.monitor == "val_accuracy":
+            if isinstance(cb, ModelCheckpoint) and (cb.monitor == "val_accuracy" or cb.monitor == "val_be_rmse" or cb.monitor == "val_rmse"):
                 best_model_path = cb.best_model_path
                 if not os.path.exists(best_model_path):
                     print(f"Best file not found at {best_model_path}. Skipping plot generation.")
@@ -172,7 +172,9 @@ class AAHeatmapFigureCallback(Callback):
 
                 else:
                     if "epoch=" in best_model_path:
+                        print(f"Best file found at {best_model_path}. Plotting.")
                         best_epoch = int(best_model_path.split("epoch=")[1].split(".")[0])
+                        print(best_epoch)
         
         final_epoch = trainer.max_epochs-1
 

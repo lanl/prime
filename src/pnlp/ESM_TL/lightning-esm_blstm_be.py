@@ -23,7 +23,7 @@ from pnlp.ESM_TL.dms_plotter import LossBeFigureCallback
 class LightningEsmBlstmBe(L.LightningModule):
     def __init__(self, 
                  from_checkpoint:str, # Only set for hparams save
-                 lr: float, max_len: int, blstm_model: BLSTM_BE, esm_version="facebook/esm2_t6_8M_UR50D", freeze_esm_weights=True, from_esm_mlm=None):
+                 lr: float, max_len: int, blstm_model: BLSTM_BE, esm_version="facebook/esm2_t6_8M_UR50D", freeze_esm_weights=False, from_esm_mlm=None):
         super().__init__()
         self.save_hyperparameters(ignore=["blstm_model"])  # Save all init parameters to self.hparams
         self.tokenizer = EsmTokenizer.from_pretrained(esm_version, cache_dir="../../../.cache")
