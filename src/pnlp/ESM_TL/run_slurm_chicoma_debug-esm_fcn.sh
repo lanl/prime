@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=DEBUG
-#SBATCH --output=logs/esm_fcn_be/version_%j/slurm_out/%j.out	 # Redirect standard out to slurm_outs
-#SBATCH --error=logs/esm_fcn_be/version_%j/slurm_out/%j.err	     # Redirect standard err to slurm_outs
+#SBATCH --output=logs/esm_mlm_fcn_be/version_%j/slurm_out/%j.out	 # Redirect standard out to slurm_outs
+#SBATCH --error=logs/esm_mlm_fcn_be/version_%j/slurm_out/%j.err	     # Redirect standard err to slurm_outs
 #SBATCH --partition gpu                                          # GPU partition
 #SBATCH --reservation=gpu_debug                                  # Debug
 #SBATCH --time=2:00:00                                           # 2 hour max limit
@@ -12,13 +12,11 @@
 
 # Load environment
 module load cudatoolkit
-source ../../../../venvs/spike/bin/activate
+source /lustre/scratch4/turquoise/exempt/artimis/biosecurity/venvs/spike/bin/activate
 
 # Run
-srun python lightning-esm_fcn_be.py \
+srun python lightning-esm_mlm_fcn_be.py \
 --num_epochs 20 \
---lr 1e-5 \
---from_esm_mlm ../ESM_MLM/logs/version_21768307/ckpt/best_model-epoch=73.val_loss=0.0022.val_accuracy=99.6612.ckpt \
---freeze_esm
-
+--lr 1e-4 \
+--from_esm_mlm ../ESM_MLM/logs/version_21768307/ckpt/best_model-epoch=73.val_loss=0.0022.val_accuracy=99.6612.ckpt
 

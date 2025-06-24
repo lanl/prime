@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-PyTorch Lightning ESM-GCN model runner.
+PyTorch Lightning ESM-MLM-GCN (with masked language head) model runner.
 """
 import argparse
 import os
@@ -8,32 +8,37 @@ import time
 import datetime
 import torch
 from torch import nn
+from collections import Counter
 
 import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.strategies import DDPStrategy
 
-from transformers import EsmTokenizer, EsmModel
+from transformers import EsmTokenizer, EsmForMaskedLM
 
 from torch_geometric.data import Data, Batch
 
 from pnlp.ESM_TL.dms_models import GraphSAGE
 from pnlp.ESM_TL.dms_data_module import DmsDataModule  
 from pnlp.ESM_TL.dms_plotter import LossFigureCallback
+from pnlp.ESM_MLM.rbd_plotter import AccuracyLossFigureCallback, AAHeatmapFigureCallback
 
 class LightningEsmGcn(L.LightningModule):
     def __init__(self, 
                  binding_or_expression:str, from_checkpoint:str, # Only set for hparams save
-                 lr: float, max_len: int, gcn_model: GraphSAGE, esm_version="facebook/esm2_t6_8M_UR50D", freeze_esm_weights=False, from_esm_mlm=None):
+                 lr: float, max_len: int, mask_prob: float, gcn_model: GraphSAGE, esm_version="facebook/esm2_t6_8M_UR50D", freeze_esm_weights=False, from_esm_mlm=None):        
         super().__init__()
         self.save_hyperparameters(ignore=["gcn_model"])  # Save all init parameters to self.hparams
         self.tokenizer = EsmTokenizer.from_pretrained(esm_version, cache_dir="../../../.cache")
-        self.esm = EsmModel.from_pretrained(esm_version, cache_dir="../../../.cache")
+        self.esm = EsmForMaskedLM.from_pretrained(esm_version, cache_dir="../../../.cache")
+        self.mlm_loss_fn = nn.CrossEntropyLoss(ignore_index=-100, reduction='sum')
         self.gcn = gcn_model
-        self.loss_fn = nn.MSELoss(reduction="sum")
+        self.regression_loss_fn = nn.MSELoss(reduction="sum")
         self.lr = lr
         self.max_len = max_len
+        self.mask_prob = mask_prob
+        self.validation_step_aa_preds = []        
 
         # Load fine-tuned weights from Lightning ESM_MLM ckpt
         if from_esm_mlm is not None:
@@ -42,22 +47,22 @@ class LightningEsmGcn(L.LightningModule):
             ckpt = torch.load(from_esm_mlm, map_location="cpu")
             state_dict = ckpt["state_dict"]
 
-            # Remove "model." prefix and filter out EsmMaskedLM specific keys
+            # Convert keys from ckpt state dict
             new_state_dict = {}
             for key, value in state_dict.items():
-                # Remove "model." prefix
-                new_key = key.replace("model.", "")
-
-                # Filter out EsmMaskedLM keys (e.g., lm_head.*)
-                if "lm_head" not in new_key:
+                if key.startswith("model.esm."):
+                    new_key = key.replace("model.esm.", "esm.esm.")
+                    new_state_dict[new_key] = value
+                elif key.startswith("model.lm_head."):
+                    new_key = key.replace("model.lm_head.", "esm.lm_head.")
                     new_state_dict[new_key] = value
 
             # Load weights non-strictly
             missing, unexpected = self.load_state_dict(new_state_dict, strict=False)
-            
-            # Define keys to ignore in missing list, these are from ESM_GCN and won't exist in the ESM_MLM
+
+            # Define keys to ignore in missing list
             ignored_missing = {
-                "esm.pooler.dense.weight", "esm.pooler.dense.bias",
+                # Regression head (not present in MLM)
                 "gcn.conv1.lin_l.weight", "gcn.conv1.lin_l.bias", "gcn.conv1.lin_r.weight", "gcn.conv2.lin_l.weight", "gcn.conv2.lin_l.bias", "gcn.conv2.lin_r.weight",
                 "gcn.fcn.0.weight", "gcn.fcn.0.bias", "gcn.fcn.2.weight", "gcn.fcn.2.bias", "gcn.fcn.4.weight", 
                 "gcn.fcn.4.bias", "gcn.fcn.6.weight", "gcn.fcn.6.bias", "gcn.fcn.8.weight", "gcn.fcn.8.bias", 
@@ -81,7 +86,8 @@ class LightningEsmGcn(L.LightningModule):
             if trainer.global_rank == 0: print("ESM weights are frozen!")
 
     def forward(self, input_ids, attention_mask, targets):
-        esm_last_hidden_state = self.esm(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state # shape: [batch_size, sequence_length, embedding_dim]
+        esm_output = self.esm(input_ids=input_ids, attention_mask=attention_mask, labels=None, output_hidden_states=True)
+        esm_last_hidden_state = esm_output.hidden_states[-1] # shape: [batch_size, sequence_length, embedding_dim]
         esm_aa_embedding = esm_last_hidden_state[:, 1:-1, :] # Amino Acid-level representations, [batch_size, sequence_length-2, embedding_dim], excludes 1st and last tokens
         
         # Graph Construction
@@ -97,9 +103,9 @@ class LightningEsmGcn(L.LightningModule):
             ))
 
         batch_graph = Batch.from_data_list(graphs).to(self.device)
-        output = self.gcn(batch_graph.x, batch_graph.edge_index, batch_graph.batch)
+        gcn_output = self.gcn(batch_graph.x, batch_graph.edge_index, batch_graph.batch)
 
-        return output, batch_graph.y
+        return esm_output, gcn_output, batch_graph.y
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
@@ -109,23 +115,66 @@ class LightningEsmGcn(L.LightningModule):
         targets = targets.to(self.device).float()
         batch_size = targets.size(0)
 
+        # Tokenize sequences
         tokenized = self.tokenizer(seqs, return_tensors="pt", padding=True, truncation=True, max_length=self.max_len)
         tokenized = {k: v.to(self.device) for k, v in tokenized.items()}
+        original_ids = tokenized["input_ids"]
+        attention_mask = tokenized["attention_mask"]
 
-        preds, y = self(input_ids=tokenized["input_ids"], attention_mask=tokenized["attention_mask"], targets=targets)
-        loss = self.loss_fn(preds, y)  # Sum of squared errors (sse)
+        # Generate new mask for each epoch (ignore special tokens)
+        rand = torch.rand(original_ids.shape, device=self.device)
+        mask_arr = (rand < self.mask_prob) * \
+               (original_ids != self.tokenizer.cls_token_id) * \
+               (original_ids != self.tokenizer.eos_token_id) * \
+               (original_ids != self.tokenizer.pad_token_id)
+    
+        masked_original_ids = original_ids.clone()
+        masked_original_ids[mask_arr] = self.tokenizer.mask_token_id
 
-        return loss, batch_size
+        # Forward pass, calculate loss
+        mlm_output, regression_preds, y = self(input_ids=masked_original_ids, attention_mask=attention_mask, targets=targets)
+        mlm_preds = mlm_output.logits   # [batch_size, sequence_length, vocab_size]
+
+        mlm_labels = original_ids.clone()
+        mlm_labels[~mask_arr] = -100  # Ignore everything that's not masked
+
+        mlm_loss = self.mlm_loss_fn(mlm_preds.view(-1, mlm_preds.size(-1)), mlm_labels.view(-1))
+        regression_loss = self.regression_loss_fn(regression_preds, y)  # Sum of squared errors (sse)
+        #print(f"mlm loss: {mlm_loss * 0.1}, regression loss: {regression_loss}")
+        loss = (mlm_loss * 0.1) + regression_loss
+
+        # Make sure calculating only on amino acids present at masked positions, no special tokens
+        predicted_ids = torch.argmax(mlm_preds, dim=-1)
+        mask = (mlm_labels != -100)        
+
+        original_tokens = original_ids[mask]
+        predicted_tokens = predicted_ids[mask]
+
+        aa_ids_tensor = torch.tensor([self.tokenizer.convert_tokens_to_ids(aa) for aa in "ACDEFGHIKLMNPQRSTVWY"], device=self.device)
+        is_aa_only = torch.isin(original_tokens, aa_ids_tensor) & torch.isin(predicted_tokens, aa_ids_tensor)
+        aa_only_original = original_tokens[is_aa_only]
+        aa_only_predicted = predicted_tokens[is_aa_only]
+
+        # Calculate mlm accuracy 
+        correct = (aa_only_original == aa_only_predicted).sum().item()
+        total = is_aa_only.sum().item()
+        mlm_accuracy = (correct / total) * 100 if total > 0 else 0.0
+
+        return batch_size, loss, regression_loss, mlm_loss, aa_only_original, aa_only_predicted, mlm_accuracy
 
     def training_step(self, batch, batch_idx):
-        loss, batch_size = self.step(batch)
+        batch_size, loss, regression_loss, mlm_loss, _, _, mlm_accuracy = self.step(batch)
         
-        # Accumulate (reduce_fx="sum") losses and total items in batch
-        self.log("train_sum_se", loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
+        # Accumulate (reduce_fx="sum") losses and total items in batch for regression calculations
+        self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
+        self.log("train_mlm_loss", mlm_loss, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
+        self.log("train_mlm_accuracy", mlm_accuracy, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
+        self.log("train_sum_se", regression_loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
         self.log("train_total_items", batch_size, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
         return loss
 
     def on_train_epoch_end(self):
+        # RMSE calculation
         sum_se = self.trainer.callback_metrics.get("train_sum_se")
         total_items = self.trainer.callback_metrics.get("train_total_items")
         
@@ -136,14 +185,45 @@ class LightningEsmGcn(L.LightningModule):
             self.log("train_rmse", train_rmse, prog_bar=True) # Already synced in step
 
     def validation_step(self, batch, batch_idx):
-        loss, batch_size = self.step(batch)
+        batch_size, loss, regression_loss, mlm_loss, aa_only_original, aa_only_predicted, mlm_accuracy = self.step(batch)
+
+        # Track amino acid predictions
+        aa_keys = [
+            f"{self.tokenizer.convert_ids_to_tokens(o)}->{self.tokenizer.convert_ids_to_tokens(p)}"
+            for o, p in zip(aa_only_original.tolist(), aa_only_predicted.tolist())
+        ]
+        self.validation_step_aa_preds.extend(aa_keys)
         
         # Accumulate (reduce_fx="sum") losses and total items in batches
-        self.log("val_sum_se", loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
+        self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
+        self.log("val_mlm_loss", mlm_loss, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
+        self.log("val_mlm_accuracy", mlm_accuracy, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
+        self.log("val_sum_se", regression_loss, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
         self.log("val_total_items", batch_size, on_step=False, on_epoch=True, sync_dist=True, reduce_fx="sum")
+
         return loss
 
     def on_validation_epoch_end(self):
+        # Prediction tracking
+        aa_preds_counter = Counter(self.validation_step_aa_preds)
+
+        # Create a unique filename for each epoch/rank
+        aa_preds_dir = os.path.join(self.logger.log_dir, "aa_preds")
+        os.makedirs(aa_preds_dir, exist_ok = True)
+        preds_csv_path = os.path.join(aa_preds_dir, f"aa_predictions_epoch{self.current_epoch}_rank{self.global_rank}.csv")
+
+        with open(preds_csv_path, "w") as fb:
+            # Only write a header row
+            fb.write(f"expected_aa->predicted_aa,count\n") # changed the header row to only include count
+
+            # Write each expected aa->predicted aa and count directly to the csv file.
+            for substitution, count in aa_preds_counter.items():
+                fb.write(f"{substitution},{count}\n")
+
+        # Clear the stored outputs, as the current epoch counts have already been recorded.
+        self.validation_step_aa_preds.clear()
+
+        # RMSE calculation
         sum_se = self.trainer.callback_metrics.get("val_sum_se")
         total_items = self.trainer.callback_metrics.get("val_total_items")
         
@@ -155,7 +235,7 @@ class LightningEsmGcn(L.LightningModule):
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description="Run ESM-GCN model with Lightning")
+    parser = argparse.ArgumentParser(description="Run ESM-MLM-GCN model with Lightning")
     parser.add_argument("--binding_or_expression", type=str, default="binding", help="Set 'binding' or 'expression' as target.")
     parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
     parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs")
@@ -170,12 +250,12 @@ if __name__ == "__main__":
 
     # Logger 
     slurm_job_id = os.environ.get("SLURM_JOB_ID")
-    logger = CSVLogger(save_dir="logs", name=f"esm_gcn", version=f"version_{slurm_job_id}" if slurm_job_id is not None else None)
+    logger = CSVLogger(save_dir="logs", name=f"esm_mlm_gcn", version=f"version_{slurm_job_id}" if slurm_job_id is not None else None)
 
     # Save ONLY the best model in logs/version_x/ckpt
     best_model_checkpoint = ModelCheckpoint(
-        filename="best_model-epoch={epoch:02d}.val_rmse={val_rmse:.4f}",
-        monitor="val_rmse",
+        filename="best_model-epoch={epoch:02d}.val_rmse={val_rmse:.4f}.val_mlm_accuracy={val_mlm_accuracy:.4f}", 
+        monitor="val_rmse", # Our focus is on the regression task, so RMSE priority
         mode="min",
         save_top_k=1,
         save_last=False,
@@ -216,6 +296,7 @@ if __name__ == "__main__":
             all_epochs_checkpoint, 
             TQDMProgressBar(refresh_rate=25),   # Update every 25 batches
             LossFigureCallback(),               # For loss plots
+            AAHeatmapFigureCallback()           # For final/best AA heatmap
         ]
     )
 
@@ -258,6 +339,7 @@ if __name__ == "__main__":
         from_checkpoint=from_checkpoint,    
         lr=args.lr,
         max_len=280,
+        mask_prob=0.15,
         gcn_model=gcn,
         esm_version="facebook/esm2_t6_8M_UR50D",
         freeze_esm_weights=args.freeze_esm,
