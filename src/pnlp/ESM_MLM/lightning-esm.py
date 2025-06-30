@@ -187,7 +187,7 @@ if __name__ == "__main__":
         logger=logger,
         callbacks=[
             best_model_checkpoint, 
-            all_epochs_checkpoint, 
+            #all_epochs_checkpoint, 
             TQDMProgressBar(refresh_rate=25),   # Update every 25 batches
             AccuracyLossFigureCallback(),       # For accuracy/loss plots
             AAHeatmapFigureCallback()           # For final/best AA heatmap

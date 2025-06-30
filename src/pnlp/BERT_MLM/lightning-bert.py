@@ -32,7 +32,7 @@ class LightningProteinBERT(L.LightningModule):
         self.token_to_aa = {i:aa for i, aa in enumerate('ACDEFGHIKLMNPQRSTUVWXY')} 
         self.bert = BERT(embedding_dim, dropout, max_len, mask_prob, n_transformer_layers, n_attn_heads)
         self.model = ProteinLM(self.bert, vocab_size=vocab_size)
-        self.loss_fn = nn.CrossEntropyLoss(reduction='sum')
+        self.loss_fn = nn.CrossEntropyLoss(ignore_index=-100, reduction='mean')
         self.lr = lr
         self.validation_step_aa_preds = []
 
@@ -43,16 +43,6 @@ class LightningProteinBERT(L.LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
     
     def step(self, batch):
-        """
-        Shared logic for training and validation.
-
-        Returns:
-            batch_size (int): Number of sequences in the batch.
-            loss (torch.Tensor): MLM loss.
-            aa_only_original (Tensor): Original amino acid token IDs at masked positions.
-            aa_only_predicted (Tensor): Predicted amino acid token IDs at masked positions.
-            accuracy (float): Accuracy of amino acid predictions.
-        """
         _, seqs = batch
         batch_size = len(seqs)
 
@@ -60,19 +50,31 @@ class LightningProteinBERT(L.LightningModule):
         masked_tokenized_seqs = self.tokenizer(seqs).to(self.device)
         unmasked_tokenized_seqs = self.tokenizer._batch_pad(seqs).to(self.device)
 
+        mask_arr = masked_tokenized_seqs == token_to_index['<MASK>']
+        labels = unmasked_tokenized_seqs.clone()
+        labels[~mask_arr] = -100    # Ignore everything that's not masked
+
         # Forward pass, calculate loss
         preds = self(masked_tokenized_seqs)
-        loss = self.loss_fn(preds.transpose(1,2), unmasked_tokenized_seqs)
+        loss = self.loss_fn(preds.transpose(1,2), labels)
 
-        # Calculate accuracy
-        predicted_tokens = torch.max(preds, dim=-1)[1]
-        masked_locations = torch.nonzero(torch.eq(masked_tokenized_seqs, token_to_index['<MASK>']), as_tuple=True)
-        aa_only_original = unmasked_tokenized_seqs[masked_locations]
-        aa_only_predicted = predicted_tokens[masked_locations]
-        correct_predictions = torch.eq(aa_only_predicted, aa_only_original).sum().item()
-        total_masked = masked_locations[0].numel()     
-        accuracy = (correct_predictions / total_masked) * 100
-        
+        # Make sure calculating only on amino acids present at masked positions, no special tokens
+        predicted_ids = torch.argmax(preds, dim=-1)
+        mask = (labels != -100)       
+    
+        original_tokens = unmasked_tokenized_seqs[mask]
+        predicted_tokens = predicted_ids[mask]
+
+        aa_ids_tensor = torch.tensor([token_to_index.get(aa) for aa in 'ACDEFGHIKLMNPQRSTVWY'], device=self.device)
+        is_aa_only = torch.isin(original_tokens, aa_ids_tensor) & torch.isin(predicted_tokens, aa_ids_tensor)
+        aa_only_original = original_tokens[is_aa_only]
+        aa_only_predicted = predicted_tokens[is_aa_only]
+
+        # Calculate accuracy 
+        correct = (aa_only_original == aa_only_predicted).sum().item()
+        total = is_aa_only.sum().item()
+        accuracy = (correct / total) * 100 if total > 0 else 0.0
+
         return batch_size, loss, aa_only_original, aa_only_predicted, accuracy
                 
     def training_step(self, batch, batch_idx):
@@ -81,7 +83,6 @@ class LightningProteinBERT(L.LightningModule):
         # Log metrics
         self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
         self.log("train_accuracy", accuracy, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
-
         return loss
     
     def validation_step(self, batch, batch_idx):
@@ -97,7 +98,6 @@ class LightningProteinBERT(L.LightningModule):
         # Log metrics
         self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
         self.log("val_accuracy", accuracy, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch_size, sync_dist=True)
-
         return loss
     
     def on_validation_epoch_end(self):   
