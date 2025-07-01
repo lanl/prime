@@ -19,8 +19,8 @@ class LightningEsmBlstm(L.LightningModule):
         super().__init__()
         self.script_letter = script_letter
         self.binding_or_expression = binding_or_expression
-        self.tokenizer = EsmTokenizer.from_pretrained(esm_version, cache_dir="../../.cache")
-        self.esm = EsmModel.from_pretrained(esm_version, cache_dir="../../.cache")
+        self.tokenizer = EsmTokenizer.from_pretrained(esm_version, cache_dir="../../../../.cache")
+        self.esm = EsmModel.from_pretrained(esm_version, cache_dir="../../../../.cache")
         self.blstm = blstm_model
         self.max_len = max_len
         self.batch_dataframes = []

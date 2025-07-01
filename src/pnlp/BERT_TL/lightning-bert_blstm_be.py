@@ -23,7 +23,7 @@ from pnlp.ESM_MLM.rbd_plotter import AccuracyLossFigureCallback, AAHeatmapFigure
 from pnlp.BERT_MLM.model.language import BERT, ProteinMaskedLanguageModel
 from pnlp.BERT_MLM.embedding.tokenizer import ProteinTokenizer, token_to_index
 
-class LightningEsmBlstmBe(L.LightningModule):
+class LightningBertBlstmBe(L.LightningModule):
     def __init__(self, 
                  from_checkpoint:str, # Only set for hparams save
                  lr: float, max_len: int, mask_prob:float, blstm_model: BLSTM_BE, 
@@ -360,7 +360,7 @@ if __name__ == "__main__":
         seed=seed
     )
 
-    model = LightningEsmBlstmBe(
+    model = LightningBertBlstmBe(
         from_checkpoint=from_checkpoint,    
         lr=args.lr,
         max_len=280,

@@ -18,8 +18,8 @@ class LightningEsmFcnBe(L.LightningModule):
                  max_len: int, fcn_model: FCN_BE, esm_version="facebook/esm2_t6_8M_UR50D"):
         super().__init__()
         self.script_letter = script_letter
-        self.tokenizer = EsmTokenizer.from_pretrained(esm_version, cache_dir="../../.cache")
-        self.esm = EsmModel.from_pretrained(esm_version, cache_dir="../../.cache")
+        self.tokenizer = EsmTokenizer.from_pretrained(esm_version, cache_dir="../../../../.cache")
+        self.esm = EsmModel.from_pretrained(esm_version, cache_dir="../../../../.cache")
         self.fcn = fcn_model
         self.max_len = max_len
         self.batch_dataframes = []
