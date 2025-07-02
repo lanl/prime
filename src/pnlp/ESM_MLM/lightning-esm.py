@@ -38,16 +38,6 @@ class LightningProteinESM(L.LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
     
     def step(self, batch):
-        """
-        Shared logic for training and validation.
-
-        Returns:
-            batch_size (int): Number of sequences in the batch.
-            loss (torch.Tensor): MLM loss.
-            aa_only_original (Tensor): Original amino acid token IDs at masked positions.
-            aa_only_predicted (Tensor): Predicted amino acid token IDs at masked positions.
-            accuracy (float): Accuracy of amino acid predictions.
-        """
         _, seqs = batch
         batch_size = len(seqs)
 
