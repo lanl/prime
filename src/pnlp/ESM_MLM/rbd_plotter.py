@@ -121,6 +121,13 @@ class AAHeatmapFigureCallback(Callback):
         df["Error Percentage"] = (df["Total Count"] / df["Expected Total"]) * 100
         df["Error Percentage"] = df["Error Percentage"].fillna(0)
 
+        # Print diagonal entries (correct predictions)
+        correct_preds = df[df["Expected"] == df["Predicted"]][["Expected", "Total Count", "Error Percentage"]]
+        print("\nCorrect Predictions (Expected == Predicted):")
+        print(correct_preds.sort_values(by="Expected").to_string(index=False))
+        average_rate = sum(correct_preds['Error Percentage'].values.tolist()) / len(correct_preds)
+        print(f"average_rate: {average_rate}")
+
         # Pivot for heatmap
         heatmap_data = df.pivot_table(index="Predicted", columns="Expected", values="Error Percentage")
 
