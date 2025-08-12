@@ -5,5 +5,11 @@ tqdm
 transformers
 lightning
 lightning[extra]
-deepspeed
 torch-geometric
+scipy
+pyarrow
+fastparquet
+scikit-learn
+hdbscan
+biopython
+opentsne

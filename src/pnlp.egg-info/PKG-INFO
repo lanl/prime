@@ -21,8 +21,12 @@ Requires-Dist: tqdm
 Requires-Dist: transformers
 Requires-Dist: lightning
 Requires-Dist: lightning[extra]
-Requires-Dist: deepspeed
 Requires-Dist: torch-geometric
+Requires-Dist: scipy
+Requires-Dist: pyarrow
+Requires-Dist: fastparquet
+Requires-Dist: scikit-learn
+Requires-Dist: hdbscan
 Dynamic: author
 Dynamic: author-email
 Dynamic: classifier
