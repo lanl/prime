@@ -50,7 +50,71 @@ Other requirements:
 - NVIDIA GPU is recommended
 
 ## Usage
+### ESM MLM or BERT MLM
+To run the ESM MLM and BERT MLM models, all you need to do is make sure your environment is active, and then run the command `python lightning-esm.py` or `python lightning-bert.py`. By default, if you are not in a SLURM environment, it is set up to use a single GPU on a single node. You can adjust the number of epochs within the script using the variable `max_epochs`.
 
+It is recommended to run in an environment with multiple GPUs, preferably in a SLURM environment, to take advantage of using Pytorch Lightning. If you would like to use SLURM with multiple GPUs, here is an example bash script using ESM MLM:
+```bash
+#!/bin/bash
+#SBATCH --job-name=ESM_MLM
+#SBATCH --output=logs/version_%j/slurm_out/%j.out	     # Redirect standard out to slurm_outs
+#SBATCH --error=logs/version_%j/slurm_out/%j.err	     # Redirect standard err to slurm_outs
+#SBATCH --partition=gpu                                  # GPU partition
+#SBATCH --time=4:00:00                                   # Max time limit
+#SBATCH --nodes=2                                        # Number of nodes
+#SBATCH --ntasks-per-node=4                              # Number of processes per node (match GPU count)
+#SBATCH --exclusive                                      # Use entire node exclusively
+
+# Load environment
+source venvs/spike/bin/activate
+
+# Run
+srun python lightning-esm.py
+```
+This SLURM script utilizes 8 total GPUs, 4 on each node. When using SLURM, `srun` is necessary in order to detect all of the devices properly.
+
+### ESM TL or BERT TL
+To run any of the ESM TL or BERT TL models, there are flags you can set from the command line.
+- For ESM TL
+    - `--binding_or_expression`: Set 'binding' or 'expression' as target; type=str, default="binding"
+        - This flag does not exist for multi-task models (i.e., ESM BLSTM BE, ESM FCN BE, ESM GCN BE), only for the single task.
+    - `--lr`: Set learning rate; type=float, default=1e-5
+    - `--num_epochs`: Number of epochs; type=int, default=100
+    - `--from_checkpoint`: Path to existing checkpoint to resume training from; type=str, default=None
+    - `--from_esm_mlm`: Path to pretrained ESM_MLM checkpoint; type=str, default=None
+    - `--freeze_esm`: Whether to freeze ESM model weights. Abscence of flag sets to False
+
+- For BERT TL
+    - `--binding_or_expression`: Set 'binding' or 'expression' as target; type=str, default="binding"
+        - This flag does not exist for multi-task models (i.e., BERT BLSTM BE, BERT GCN BE), only for the single task.
+    - `--lr`: Set learning rate; type=float, default=1e-5
+    - `--num_epochs`: Number of epochs; type=int, default=100
+    - `--from_checkpoint`: Path to existing checkpoint to resume training from; type=str, default=None
+    - `--from_bert_mlm`: Path to pretrained BERT_MLM checkpoint; type=str, default=None
+    - `--freeze_bert`: Whether to freeze BERT model weights. Abscence of flag sets to False.
+
+Here is an example SLURM bash script for running ESM FCN BE, where we run for 20 epochs at a learning rate of 1e-4 after loading in the pretrained ESM MLM weights:
+```bash
+#!/bin/bash
+#SBATCH --job-name=ESM_FCN_BE
+#SBATCH --output=logs/esm_mlm_fcn_be/version_%j/slurm_out/%j.out    # Redirect standard out to slurm_outs
+#SBATCH --error=logs/esm_mlm_fcn_be/version_%j/slurm_out/%j.err     # Redirect standard err to slurm_outs
+#SBATCH --partition=gpu                                             # GPU partition
+#SBATCH --time=4:00:00                                              # Max time limit
+#SBATCH --nodes=2                                                   # Number of nodes
+#SBATCH --ntasks-per-node=4                                         # Number of processes per node (match GPU count)
+#SBATCH --exclusive                                                 # Use entire node exclusively
+
+# Load environment
+source venvs/spike/bin/activate
+
+# Run
+srun python lightning-esm_mlm_fcn_be.py \
+--num_epochs 20 \
+--lr 1e-4 \
+--from_esm_mlm best_model-epoch=73.val_loss=0.0022.val_accuracy=99.6612.ckpt
+```
+You could also run this from the command line without SLURM as well, without using the `srun` part of the command. Again, I would recommend using SLURM to take advantage of Pytorch Lightning. All of this code was written and ran using a SLURM environment.
 
 ## License
 [MIT](https://github.com/kae-gi/Spike_NLP-Lightning/blob/main/LICENSE.md)
