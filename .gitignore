@@ -21,4 +21,4 @@ data/rbd/original
 # Respect data permissions
 /data
 /notebooks/clustering/betacov/betacov_clustering-from-esm-mlm.csv
-/notebooks/clustering/betacov/betacov_clusterin.csv
+/notebooks/clustering/betacov/betacov_clustering.csv
