@@ -7,11 +7,18 @@ spike
 *.ckpt
 UTF-8snow.sh
 *.parquet
+**/old
+*.sh
+
+# Too big
 data/rbd/spikeprot0528.clean.uniq.noX.RBD.metadata.tsv
 data/rbd/spikeprot0528.clean.uniq.noX.RBD.metadata.variants.ADO.csv
 data/rbd/spikeprot0528.clean.uniq.noX.RBD.metadata.variants.ADO.fasta
 data/rbd/spikeprot0528.clean.uniq.noX.RBD.metadata.variants.O.csv
 data/rbd/spikeprot0528.clean.uniq.noX.RBD.metadata.variants.O.fasta
 data/rbd/original
-**/old
-*.sh
+
+# Respect data permissions
+/data
+/notebooks/clustering/betacov/betacov_clustering-from-esm-mlm.csv
+/notebooks/clustering/betacov/betacov_clusterin.csv
