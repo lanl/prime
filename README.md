@@ -116,8 +116,5 @@ srun python lightning-esm_mlm_fcn_be.py \
 ```
 You could also run this from the command line without SLURM as well, without using the `srun` part of the command. Again, I would recommend using SLURM to take advantage of Pytorch Lightning. All of this code was written and ran using a SLURM environment.
 
-## License
-[MIT](https://github.com/kae-gi/Spike_NLP-Lightning/blob/main/LICENSE.md)
-
 ## Citation
 WIP
