@@ -11,6 +11,7 @@ Understand the sequence to function, or genotype-phenotype, relationship of prot
 
 ### Models
 Non masked language models do not use the EsmForMaskedLM head.
+Note: We used the 8M parameter ESM2 model in our training. This is the smallest ESM2 model. This version of the model was utilized because we started on our laptops. We continued to use this in our HPC environments due to time limit and resource restrictions. 
 - [ESM MLM](https://github.com/lanl/prime/tree/main/src/pnlp/ESM_MLM) (ESM-RBD; masked language model)
 - [BERT MLM](https://github.com/lanl/prime/tree/main/src/pnlp/BERT_MLM) (masked language model)
 - [ESM TL](https://github.com/lanl/prime/tree/main/src/pnlp/ESM_TL) (transfer learning models; non masked language models and masked language models)
