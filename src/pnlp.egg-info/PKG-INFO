@@ -1,4 +1,4 @@
-Metadata-Version: 2.4
+Metadata-Version: 2.1
 Name: pnlp
 Version: 0.1
 Summary: Protein sequence NLP
@@ -13,24 +13,4 @@ Classifier: Operating System :: POSIX :: BSD
 Classifier: Programming Language :: Python :: 3.9
 Classifier: Programming Language :: Python :: 3 :: Only
 Classifier: Topic :: Scientific/Engineering :: Bio-Informatics
-License-File: LICENSE.txt
-Requires-Dist: numpy
-Requires-Dist: seaborn
-Requires-Dist: pandas
-Requires-Dist: tqdm
-Requires-Dist: transformers
-Requires-Dist: lightning
-Requires-Dist: lightning[extra]
-Requires-Dist: torch-geometric
-Requires-Dist: scipy
-Requires-Dist: pyarrow
-Requires-Dist: fastparquet
-Requires-Dist: scikit-learn
-Requires-Dist: hdbscan
-Dynamic: author
-Dynamic: author-email
-Dynamic: classifier
-Dynamic: keywords
-Dynamic: license-file
-Dynamic: requires-dist
-Dynamic: summary
+License-File: LICENSE.md

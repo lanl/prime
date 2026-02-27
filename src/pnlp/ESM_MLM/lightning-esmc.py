@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 """
-PyTorch Lightning ESM-MLM (with masked language head) model runner.
+PyTorch Lightning ESMC-MLM (with masked language) model runner.
 """
 import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import time
 import datetime
 import argparse
@@ -14,26 +16,30 @@ from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.strategies import DDPStrategy
 
-from transformers import EsmTokenizer, EsmForMaskedLM
-
 from pnlp.ESM_MLM.rbd_data_module import RbdDataModule  
 from pnlp.ESM_MLM.rbd_plotter import AccuracyLossFigureCallback, AAHeatmapFigureCallback
+from pnlp.ESM_TL.random_vs_stratified_split.esmc_util import load_from_cache
 
 class LightningProteinESM(L.LightningModule):
     def __init__(self, 
                  from_checkpoint:str,   # Only set for hparams save
-                 lr: float, max_len: int, mask_prob: float, esm_version=str):
+                 lr: float, max_len: int, mask_prob: float, esm_version="esmc_600m_local"):
         super().__init__()
         self.save_hyperparameters()  # Save all init parameters to self.hparams
-        self.tokenizer = EsmTokenizer.from_pretrained(esm_version, cache_dir="../../../.cache")
-        self.model = EsmForMaskedLM.from_pretrained(esm_version, cache_dir="../../../.cache")
+        self.model = load_from_cache(esm_version, cache_dir="../../../.cache")
+        self.tokenizer = self.model.tokenizer
         self.lr = lr
         self.max_len = max_len
         self.mask_prob = mask_prob
         self.validation_step_aa_preds = []
 
-    def forward(self, input_ids, attention_mask, labels):
-        return self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+        id2token = {v: k for k, v in self.tokenizer.get_vocab().items()}
+        tokens_sorted = [id2token[i] for i in range(len(id2token))]
+        aa_ids = [i for i, tok in enumerate(tokens_sorted) if tok in list("ACDEFGHIKLMNPQRSTVWY")]
+        self.aa_ids_tensor = torch.tensor(aa_ids)
+
+    def forward(self, masked_ids):
+        return self.model.forward(sequence_tokens=masked_ids)
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
@@ -45,42 +51,49 @@ class LightningProteinESM(L.LightningModule):
         # Tokenize sequences
         tokenized_seqs = self.tokenizer(seqs, return_tensors="pt", padding=True, truncation=True, max_length=self.max_len)
         tokenized_seqs = {k: v.to(self.device) for k, v in tokenized_seqs.items()}
-        original_ids = tokenized_seqs["input_ids"]
-        attention_mask = tokenized_seqs["attention_mask"]
+        input_ids = tokenized_seqs["input_ids"]
 
         # Generate new mask for each epoch
-        rand = torch.rand(original_ids.shape, device=self.device)
+        rand = torch.rand(input_ids.shape, device=self.device)
         mask_arr = (rand < self.mask_prob) * \
-               (original_ids != self.tokenizer.cls_token_id) * \
-               (original_ids != self.tokenizer.eos_token_id) * \
-               (original_ids != self.tokenizer.pad_token_id)
+               (input_ids != self.tokenizer.cls_token_id) * \
+               (input_ids != self.tokenizer.eos_token_id) * \
+               (input_ids != self.tokenizer.pad_token_id)
     
-        masked_original_ids = original_ids.clone()
-        masked_original_ids[mask_arr] = self.tokenizer.mask_token_id
+        # Copy and replace selected positions with mask token
+        masked_ids = input_ids.clone()
+        masked_ids[mask_arr] = self.tokenizer.mask_token_id
 
-        # Forward pass, calculate loss
-        outputs = self(input_ids=masked_original_ids, attention_mask=attention_mask, labels=original_ids)
-        loss = outputs.loss
-        preds = outputs.logits
+        # Set labels to -100 for non-masked positions
+        labels = input_ids.clone()
+        labels[~mask_arr] = -100 
+
+        # Forward pass
+        output = self(masked_ids=masked_ids)
+
+        # Calculate loss
+        loss_fn = torch.nn.CrossEntropyLoss(ignore_index=-100, reduction='mean')  
+        loss = loss_fn(output.sequence_logits.transpose(1,2), labels)
 
         # Make sure calculating only on amino acids present at masked positions, no special tokens
-        predicted_ids = torch.argmax(preds, dim=-1)
-        mask = (masked_original_ids == self.tokenizer.mask_token_id)
-        
-        original_tokens = original_ids[mask]
-        predicted_tokens = predicted_ids[mask]
+        pred_ids = torch.argmax(output.sequence_logits, dim=-1)
+        masked_input_ids = input_ids[mask_arr] 
+        masked_pred_ids  = pred_ids[mask_arr]  
 
-        aa_ids_tensor = torch.tensor([self.tokenizer.convert_tokens_to_ids(aa) for aa in "ACDEFGHIKLMNPQRSTVWY"], device=self.device)
-        is_aa_only = torch.isin(original_tokens, aa_ids_tensor) & torch.isin(predicted_tokens, aa_ids_tensor)
-        aa_only_original = original_tokens[is_aa_only]
-        aa_only_predicted = predicted_tokens[is_aa_only]
+        # Filter to ensure only the 20 canonical amino acids (for heatmap)
+        is_aa_only = torch.isin(masked_input_ids, self.aa_ids_tensor.to(self.device)) & torch.isin(masked_pred_ids, self.aa_ids_tensor.to(self.device))
+        aa_only_input = masked_input_ids[is_aa_only]
+        aa_only_pred = masked_pred_ids[is_aa_only]
+
+        # Evaluate on masked positions where the true label is a canonical amino acid
+        is_truth_label_aa = torch.isin(masked_input_ids, self.aa_ids_tensor.to(self.device))
+        truth_label_aa_input = masked_input_ids[is_truth_label_aa]
+        truth_label_aa_pred = masked_pred_ids[is_truth_label_aa]
 
         # Calculate accuracy 
-        correct = (aa_only_original == aa_only_predicted).sum().item()
-        total = is_aa_only.sum().item()
-        accuracy = (correct / total) * 100 if total > 0 else 0.0
+        accuracy = (truth_label_aa_input == truth_label_aa_pred).float().mean() * 100
         
-        return batch_size, loss, aa_only_original, aa_only_predicted, accuracy
+        return batch_size, loss, aa_only_input, aa_only_pred, accuracy
                 
     def training_step(self, batch, batch_idx):
         batch_size, loss, _, _, accuracy = self.step(batch)
@@ -92,12 +105,12 @@ class LightningProteinESM(L.LightningModule):
         return loss
     
     def validation_step(self, batch, batch_idx):
-        batch_size, loss, aa_only_original, aa_only_predicted, accuracy = self.step(batch)
+        batch_size, loss, aa_only_input, aa_only_pred, accuracy = self.step(batch)
 
         # Track amino acid predictions
         aa_keys = [
             f"{self.tokenizer.convert_ids_to_tokens(o)}->{self.tokenizer.convert_ids_to_tokens(p)}"
-            for o, p in zip(aa_only_original.tolist(), aa_only_predicted.tolist())
+            for o, p in zip(aa_only_input.tolist(), aa_only_pred.tolist())
         ]
         self.validation_step_aa_preds.extend(aa_keys)
 
@@ -129,15 +142,14 @@ class LightningProteinESM(L.LightningModule):
 
 if __name__ == "__main__":
 
-    ESM2_MODELS = {
-        "esm2_8m": "facebook/esm2_t6_8M_UR50D",
-        "esm2_150m": "facebook/esm2_t30_150M_UR50D",
-        "esm2_650m": "facebook/esm2_t33_650M_UR50D",
+    ESMC_MODELS = {
+        "esmc_300m": "esmc_300m_local", 
+        "esmc_600m": "esmc_600m_local",
     }
 
     parser = argparse.ArgumentParser(description="Run ESM Embedder")
-    parser.add_argument("--esm2_model", type=str, choices=list(ESM2_MODELS.keys()), default="esm2_8m",
-                        help="ESM2 model version to use. Available: %(choices)s")
+    parser.add_argument("--esmc_model", type=str, choices=list(ESMC_MODELS.keys()), default="esmc_300m",
+                        help="ESMC model version to use. Available: %(choices)s")
     args = parser.parse_args()
 
     # Random seed
@@ -160,9 +172,10 @@ if __name__ == "__main__":
     )
 
     last_checkpoint = ModelCheckpoint(
+        filename="{epoch:02d}",# name not for the last epoch
         save_last=True,        # always keep only the latest checkpoint
         save_top_k=0,          # DO NOT keep any others
-        every_n_epochs=1,      # checkpoint once per epoch
+        every_n_epochs=10,      # checkpoint per n epochs
         dirpath=None,          # Let PyTorch Lightning manage the directory
     )
 
@@ -218,7 +231,7 @@ if __name__ == "__main__":
         lr=1e-5,
         max_len=280,
         mask_prob=0.15,
-        esm_version=ESM2_MODELS[args.esm2_model]
+        esm_version=ESMC_MODELS[args.esmc_model]
     )
 
     # Run model train/validation, load from_checkpoint if set

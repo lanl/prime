@@ -27,8 +27,7 @@ class AccuracyLossFigureCallback(Callback):
         # Check if metrics file exists
         metrics_path = os.path.join(log_dir, "metrics.csv")
         if not os.path.exists(metrics_path):
-            print(f"Metrics file not found at {metrics_path}. Skipping plot generation.")
-            return
+            raise FileNotFoundError(f"Metrics file not found at {metrics_path}. Skipping plot generation.")
 
         # Extract data from metrics file
         df = pd.read_csv(
@@ -38,18 +37,14 @@ class AccuracyLossFigureCallback(Callback):
             usecols=['epoch', 'train_accuracy', 'train_loss', 'val_accuracy', 'val_loss']
         )
 
-        # Merge rows for each epoch and keep 'epoch' as a column
-        merged_df = df.groupby("epoch").ffill().bfill().drop_duplicates().reset_index()
-
-        # Ensure 'epoch' is correctly named and exists
-        if "epoch" not in merged_df.columns:
-            merged_df.rename(columns={"index": "epoch"}, inplace=True)  # Rename if it was reset incorrectly
-
-        # Divide epoch by 2 to correct numbering
-        merged_df.loc[:, "epoch"] = (merged_df["epoch"] // 2).astype(int)
-
-        # Ensure sorting is correct
-        merged_df = merged_df.sort_values("epoch").reset_index(drop=True)
+        # Collapse Lightning's train/val rows into one row per epoch
+        merged_df = (
+            df
+            .groupby("epoch", as_index=False)   
+            .agg(lambda x: x.dropna().iloc[0])  # remove empty cell, select the single real value
+            .sort_values("epoch")
+            .reset_index(drop=True)
+        )
 
         # Plot
         sns.set_style('darkgrid')
@@ -68,7 +63,7 @@ class AccuracyLossFigureCallback(Callback):
         axs[1].plot(merged_df['epoch'], merged_df['val_accuracy'], label='Test (Validation) Accuracy', color='tab:green', linewidth=1.5)
         axs[1].set_xlabel('Epoch')
         axs[1].set_ylabel('Accuracy (%)')
-        axs[1].set_ylim(0, 100)
+        axs[1].set_ylim(0, 105)
         axs[1].legend(loc='best')
 
         # Save the figure to the "figures" subdirectory.
