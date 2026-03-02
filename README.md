@@ -29,6 +29,7 @@ Note: We used the 8M parameter ESM2 model in our training. This is the smallest 
         - ESM FCN (single task)
         - ESM GCN BE (multi task)
         - ESM GCN BE (single task)
+    - Random vs Position Stratified Split Evaluation
 - [BERT TL](https://github.com/lanl/prime/tree/main/src/pnlp/BERT_TL) (transfer learning models; masked language models)
     - BERT BLSTM BE (multi task)
     - BERT BLSTM (single task)
@@ -45,15 +46,17 @@ Note: We used the 8M parameter ESM2 model in our training. This is the smallest 
         - `source ./venvs/spike/bin/activate`, adjust to where your `venvs` folder is located.
     4) From the top of the `Spike_NLP-Lightning` directory run this command to install the dependencies: 
         - `pip install -e .`
-        - You may also need to run `pip install -r requirements/torchreq.txt`, but torch should be installed through the other requirements.
+        - You may also need to run `pip install -r requirements/torchreq.txt`, if torch is not installed through the other requirements.
         - You can also run these commands with the flag `--no-cache-dir` if your folder where pip sends downloads to cache is full.
 
 Other requirements:
-- NVIDIA GPU is recommended
+- NVIDIA GPU is recommended 
 
 ## Usage
 ### ESM MLM or BERT MLM
-To run the ESM MLM and BERT MLM models, all you need to do is make sure your environment is active, and then run the command `python lightning-esm.py` or `python lightning-bert.py`. By default, if you are not in a SLURM environment, it is set up to use a single GPU on a single node. You can adjust the number of epochs within the script using the variable `max_epochs`.
+To run the BERT MLM models, all you need to do is make sure your environment is active, and then run the command `python lightning-bert.py`. By default, if you are not in a SLURM environment, it is set up to use a single GPU on a single node. You can adjust the number of epochs within the script using the variable `max_epochs`. 
+
+For the ESM MLM models (now including ESM-C and other ESM-2 versions), you need to make sure the environment is active, and then run the command `python lightning-esm.py` or `python lightning-esmc.py`. By default, the `--esm2_model` or `--esmc_model` flag is set to the smallest available model; otherwise, you can choose which model you want. Note that you will likely need to adjust batch size if the model is large to fit on your GPU.
 
 It is recommended to run in an environment with multiple GPUs, preferably in a SLURM environment, to take advantage of using Pytorch Lightning. If you would like to use SLURM with multiple GPUs, here is an example bash script using ESM MLM:
 ```bash
@@ -71,7 +74,7 @@ It is recommended to run in an environment with multiple GPUs, preferably in a S
 source venvs/spike/bin/activate
 
 # Run
-srun python lightning-esm.py
+srun python lightning-esm.py --esm2_model esm2_8m
 ```
 This SLURM script utilizes 8 total GPUs, 4 on each node. When using SLURM, `srun` is necessary in order to detect all of the devices properly.
 

@@ -221,7 +221,7 @@ if __name__ == "__main__":
 
     dm = RbdDataModule(
         data_dir=data_dir,
-        batch_size=24,
+        batch_size=64,
         num_workers=4, 
         seed=seed
     )
