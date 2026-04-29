@@ -8,7 +8,6 @@ spike
 UTF-8snow.sh
 *.parquet
 **/old
-*.sh
 **core
 
 src/pnlp/ESM_MLM/plot_multi_job_run.py
