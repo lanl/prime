@@ -6,13 +6,22 @@ Understand the sequence to function, or genotype-phenotype, relationship of prot
 ### Documentation
 - [Data Processing](https://github.com/lanl/prime/tree/main/notebooks/data_processing)
 - [Clustering](https://github.com/lanl/prime/tree/main/notebooks/clustering)
+    - Analysis using TSNE + HDBSCAN: `clustering/betacov`, `clustering/rbd`
+    - NEW: analysis using `cuML` GPU for UMAP + HDBSCAN: `clustering/blackwell/betacov`, `clustering/blackwell/rbd`
+        - Used NVIDIA RTX PRO 6000 (Blackwell edition) GPUs, requirements for package installs in `requirements/blackwell_requirements.txt`
+        - TSNE + HDBSCAN using `cuML` also in here, but manuscript results do not reflect these results. This was more of an exploration in case we needed it.
 - [Model Comparison & Development](https://github.com/lanl/prime/tree/main/notebooks/models)
 - [Phylogenetic Analysis](https://github.com/lanl/prime/tree/main/notebooks/phylogenetic_analysis)
+
+### Random vs Position-Stratified Split
+- NEW, located [here](https://github.com/lanl/prime/tree/main/random_vs_stratified_split)
+- Used NVIDIA RTX PRO 6000 (Blackwell edition) GPUs, requirements for package installs in `requirements/blackwell_requirements.txt`
 
 ### Models
 Non masked language models do not use the EsmForMaskedLM head.
 Note: We used the 8M parameter ESM2 model in our training. This is the smallest ESM2 model. This version of the model was utilized because we started on our laptops. We continued to use this in our HPC environments due to time limit and resource restrictions. 
 - [ESM MLM](https://github.com/lanl/prime/tree/main/src/pnlp/ESM_MLM) (ESM-RBD; masked language model)
+    - Model weights for 8M model [available](/panfs/biopan03/prime_ml/prime/src/pnlp/ESM_MLM/model_weights)
 - [BERT MLM](https://github.com/lanl/prime/tree/main/src/pnlp/BERT_MLM) (masked language model)
 - [ESM TL](https://github.com/lanl/prime/tree/main/src/pnlp/ESM_TL) (transfer learning models; non masked language models and masked language models)
     - Non Masked Language Models
@@ -39,15 +48,17 @@ Note: We used the 8M parameter ESM2 model in our training. This is the smallest 
 ## Installation
 1) Git clone the repo.
 2) Set up the environment.
-    1) Create or locate your `venvs` folder.
-    2) Create your environment. Our environment is set to use Python 3.11.5.
-        - `python3.11 -m venv ./venvs/spike`, adjust to where your `venvs` folder is located.
-    3) Activate your environment.
-        - `source ./venvs/spike/bin/activate`, adjust to where your `venvs` folder is located.
-    4) From the top of the `Spike_NLP-Lightning` directory run this command to install the dependencies: 
-        - `pip install -e .`
-        - You may also need to run `pip install -r requirements/torchreq.txt`, if torch is not installed through the other requirements.
-        - You can also run these commands with the flag `--no-cache-dir` if your folder where pip sends downloads to cache is full.
+    - We have two environments we use. This is because we gained access to NVIDIA RTX PRO 6000 (Blackwell edition) GPUs for revisions. This requires a different version of many of the software packages we use. As a result, this section has changed. 
+    - Blackwell env
+        1) Create a conda env: `conda create -n blackwell_prime python=3.13.12 -y`
+        2) Install the packages: `pip install -r requirements/blackwell_requirements.txt`
+            - You can also run these commands with the flag `--no-cache-dir` if your folder where pip sends downloads to cache is full.
+        3) From the top of the `prime` directory run this command to install the rest of the dependencies: `pip install -e .`
+    - Original env
+        1) Create a conda env: `conda create -n prime python=3.11.5 -y`
+        2) Install the packages: `pip install -r requirements/requirements.txt`
+            - You can also run these commands with the flag `--no-cache-dir` if your folder where pip sends downloads to cache is full.
+        3) From the top of the `prime` directory run this command to install the rest of the dependencies: `pip install -e .`
 
 Other requirements:
 - NVIDIA GPU is recommended 
@@ -71,7 +82,7 @@ It is recommended to run in an environment with multiple GPUs, preferably in a S
 #SBATCH --exclusive                                      # Use entire node exclusively
 
 # Load environment
-source venvs/spike/bin/activate
+conda activate prime
 
 # Run
 srun python lightning-esm.py --esm2_model esm2_8m
@@ -111,7 +122,7 @@ Here is an example SLURM bash script for running ESM FCN BE, where we run for 20
 #SBATCH --exclusive                                                 # Use entire node exclusively
 
 # Load environment
-source venvs/spike/bin/activate
+conda activate prime
 
 # Run
 srun python lightning-esm_mlm_fcn_be.py \

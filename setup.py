@@ -8,7 +8,7 @@ here = path.abspath(path.dirname(__file__))
 with open(path.join(here, 'requirements', 'requirements.txt'), encoding='utf-8') as f:
     requirements = f.read().splitlines()
 
-PYTHON_REQUIRES = '>=3.7.*'    
+PYTHON_REQUIRES = '>=3.11.*'    
 setup(
     name='pnlp',
     version='0.1',
@@ -28,5 +28,5 @@ setup(
     keywords='Protein, natural language processing, NLP',
     packages=find_packages('src', exclude=['contrib', 'docs', 'tests']),
     package_dir={'': 'src'},
-    install_requires=requirements,
+    # install_requires=requirements,
 )

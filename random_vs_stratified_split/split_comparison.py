@@ -526,7 +526,7 @@ if __name__ == "__main__":
     parser.add_argument("--emb_file", type=str, choices=list(EMB_FILES.keys()), default="ESM2_8M_base", 
                         help="Sequences embedded by an ESM model or one-hot. (default: %(default)s). Available: %(choices)s")
     parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
-    parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs")
+    parser.add_argument("--num_epochs", type=int, default=1000, help="Number of epochs")
 
     args = parser.parse_args()
     main(args)

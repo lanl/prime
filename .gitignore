@@ -24,5 +24,11 @@ notebooks/phylogenetic_analysis/aligned_ADO_seq.afasta
 random_vs_stratified_split/embeddings
 random_vs_stratified_split/position_stratified_split_mutation_summary_raw_values.csv
 
+notebooks/clustering/blackwell/rbd/clusters/rbd_o*/
+notebooks/clustering/blackwell/rbd/param_sweeps/rbd_o*/
+notebooks/clustering/blackwell/rbd/parquets/rbd_o*/
+notebooks/clustering/blackwell/rbd/plots/rbd_o*/
+notebooks/clustering/blackwell/rbd/rbd_o*
+
 # Respect data permissions
 /data
