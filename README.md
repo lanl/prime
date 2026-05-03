@@ -51,12 +51,12 @@ Note: We used the 8M parameter ESM2 model in our training. This is the smallest 
     - We have two environments we use. This is because we gained access to NVIDIA RTX PRO 6000 (Blackwell edition) GPUs for revisions. This requires a different version of many of the software packages we use. As a result, this section has changed. 
     - Blackwell env
         1) Create a conda env: `conda create -n blackwell_prime python=3.13.12 -y`
-        2) Install the packages: `pip install -r requirements/blackwell_requirements.txt`
+        2) Install the packages: `pip install -r requirements/blackwell_prime_requirements.txt`
             - You can also run these commands with the flag `--no-cache-dir` if your folder where pip sends downloads to cache is full.
         3) From the top of the `prime` directory run this command to install the rest of the dependencies: `pip install -e .`
     - Original env
         1) Create a conda env: `conda create -n prime python=3.11.5 -y`
-        2) Install the packages: `pip install -r requirements/requirements.txt`
+        2) Install the packages: `pip install -r requirements/prime_requirements.txt`
             - You can also run these commands with the flag `--no-cache-dir` if your folder where pip sends downloads to cache is full.
         3) From the top of the `prime` directory run this command to install the rest of the dependencies: `pip install -e .`
 
