@@ -135,6 +135,7 @@ You could also run this from the command line without SLURM as well, without usi
 ## Citation
 Gibson, K., Li, PE., Li, V. et al. PRIME: An evaluation framework for protein representation inference and generalization in viral mutation space. BMC Genomics (2026). https://doi.org/10.1186/s12864-026-12976-5
 
+```
 @article{gibson_prime_2026,
 	title = {{PRIME}: {An} evaluation framework for protein representation inference and generalization in viral mutation space},
 	issn = {1471-2164},
@@ -146,3 +147,4 @@ Gibson, K., Li, PE., Li, V. et al. PRIME: An evaluation framework for protein re
 	month = may,
 	year = {2026},
 }
+```
