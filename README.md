@@ -133,4 +133,16 @@ srun python lightning-esm_mlm_fcn_be.py \
 You could also run this from the command line without SLURM as well, without using the `srun` part of the command. Again, I would recommend using SLURM to take advantage of Pytorch Lightning. All of this code was written and ran using a SLURM environment.
 
 ## Citation
-TBD
+Gibson, K., Li, PE., Li, V. et al. PRIME: An evaluation framework for protein representation inference and generalization in viral mutation space. BMC Genomics (2026). https://doi.org/10.1186/s12864-026-12976-5
+
+@article{gibson_prime_2026,
+	title = {{PRIME}: {An} evaluation framework for protein representation inference and generalization in viral mutation space},
+	issn = {1471-2164},
+	url = {https://doi.org/10.1186/s12864-026-12976-5},
+	doi = {10.1186/s12864-026-12976-5},
+	abstract = {Protein language models (PLMs) have revolutionized protein fitness prediction, yet their application to rapidly evolving viral pathogens is often confounded by extreme sequence homology. This homology leads to “data leakage” in standard random validation splits, yielding inflated performance metrics that fail to translate into real-world biosurveillance utility.},
+	journal = {BMC Genomics},
+	author = {Gibson, Kaetlyn and Li, Po-E and Li, Valerie and Dix, Martha and Hung, Li-Wei and Stelle, George Widgery and Babinski, Michal and Chain, Patrick and Hu, Bin},
+	month = may,
+	year = {2026},
+}
